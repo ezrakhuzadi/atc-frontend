@@ -4,6 +4,7 @@ const redis_client = require('../routes/redis-client');
 const tile38_host = process.env.TILE38_SERVER || '0.0.0.0';
 const tile38_port = process.env.TILE38_PORT || 9851;
 
+const { v4: uuidv4 } = require('uuid');
 var Tile38 = require('tile38');
 const axios = require('axios');
 require("dotenv").config();
@@ -21,7 +22,7 @@ function setObservationsLocally(observations) {
         metadata.traffic_source = traffic_source;
 
         try {
-            tile38_client.set('observation', icao_address, [lon_dd, lat_dd, altitude_mm], metadata, { expire: 300 });
+            tile38_client.set('observation', icao_address, [lat_dd, lon_dd, altitude_mm], metadata, { expire: 300 });
         } catch (err) {
             console.log("Error " + err);
         }
@@ -51,8 +52,8 @@ const pollBlenderProcess = async (job) => {
             'Authorization': cred
         }
     });
-
-    const flights_url = `${base_url}/flight_stream/get_air_traffic?view=${viewport_str}`;
+    let session_id = uuidv4();
+    const flights_url = `${base_url}/flight_stream/get_air_traffic/${session_id}?view=${viewport_str}`;
     console.debug(`Flights url: ${flights_url}`);
 
     const fullproc = 15;
@@ -72,7 +73,6 @@ const pollBlenderProcess = async (job) => {
         await delay(3000);
         console.log('Waiting 3 seconds ..');
     }
-
     console.log('Computation Complete..');
 };
 

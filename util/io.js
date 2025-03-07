@@ -1,0 +1,50 @@
+const sio = require('socket.io');
+
+let io = null;
+module.exports = {
+    //Initialize the socket server
+    initialize: function (httpServer) {
+        io = sio(httpServer);
+        io.on('connection', function (socket) {
+            console.log('New client connected with id = ', socket.id);
+            socket.on('disconnect', function (reason) {
+                console.log('A client disconnected with id = ', socket.id, " reason ==> ", reason);
+            });
+        });
+
+        let active_users = new Set();
+        io.on('connection', function (socket) {
+            socket.on('room', function (room) {
+                active_users.add(room);
+                socket.join(room);
+                sendWelcomeMsg(room);
+            });
+            socket.on('message', function (msg) {
+                let room = msg.room;
+                let data = msg.data;
+                sendStdMsg(room, data);
+            });
+            socket.on("disconnect", () => {
+                active_users.delete(socket.userId);
+                io.emit("user disconnected", socket.userId);
+            });
+        });
+
+        function sendWelcomeMsg(room) {
+            io.sockets.in(room).emit('welcome', 'Joined ' + room);
+        }
+
+        function sendStdMsg(room, data) {
+            io.sockets.in(room).emit('message', { 'type': 'message', 'data': data });
+        }
+
+
+    },
+    sendStdMsg: function (room, data) {
+        io.sockets.in(room).emit('message',data);
+    },
+    //return the io instance
+    getInstance: function () {
+        return io;
+    }
+}

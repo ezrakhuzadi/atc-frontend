@@ -226,10 +226,8 @@
               lng_cont.innerText =  parseFloat(lng).toFixed(2);
               let manual_spotlight_controls_cont  = document.getElementById('manual_spotlight_controls');
               manual_spotlight_controls_cont.classList.add('d-none');
-
-
-              let aoi_hex = view_data['aoi_hexagon'];
-              let aoi = viewer.dataSources.add(Cesium.GeoJsonDataSource.load(aoi_hex, {
+              let aoi_buffer = view_data['aoi_buffer'];
+              let aoi = viewer.dataSources.add(Cesium.GeoJsonDataSource.load(aoi_buffer, {
                   stroke: Cesium.Color.BLACK,
                   fill: Cesium.Color.WHITE.withAlpha(0.2),
                   strokeWidth: 3
@@ -260,17 +258,16 @@
 
           });
               socket.on('message', function (spotlight_data) {
-
+                
               if (spotlight_data.type == 'message') {
 
-                  if (spotlight_data.alert_type == 'aoi') {
+                  if (spotlight_data.alert_type == 'observation_in_api') {
 
                       const cur_result = spotlight_data.results.object;
-
                       // console.log(Math.floor(Date.now() / 1000) +":  " + cur_result.coordinates[1], cur_result.coordinates[0], cur_result.coordinates[2]);
                       viewer.entities.add({
-                          position: Cesium.Cartesian3.fromDegrees(cur_result.coordinates[1], cur_result
-                              .coordinates[0], cur_result.coordinates[2]),
+                          position: Cesium.Cartesian3.fromDegrees(cur_result.coordinates[0], cur_result
+                              .coordinates[1], cur_result.coordinates[2]),
 
                           // label: {text: s},
                           label: {
@@ -312,7 +309,8 @@
                       clearList();
 
                   }
-                  else if (spotlight_data.alert_type == 'aoi_geo_fence') {
+                  else if (spotlight_data.alert_type == 'geo_fence_in_aoi') {
+                    console.log(spotlight_data);
                       const result_geo_json = spotlight_data.results.objects;
 
                       for (let index = 0; index < result_geo_json.length; index++) {

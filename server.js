@@ -5,7 +5,7 @@
     const express = require('express');
     
 
-    const socket = require("socket.io");
+    const io_module = require('./util/io');
     require("dotenv").config();
     
     const spotlightNoticeboardRouter = require("./routes/spotlight_noticeboard");
@@ -14,12 +14,9 @@
     const authHandlers = {
         'flightpassport': './auth_mechanisms/flight_passport/auth_handler',
         
-    };
+    };   
 
-
-    
-
-    var app = express();
+    let app = express();
     
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }))
@@ -30,8 +27,7 @@
     const authHandlerPath = authHandlers[auth_strategy];
     if (authHandlerPath) {
         const authHandler = require(authHandlerPath);
-        app.use(authHandler());
-        
+        app.use(authHandler());        
     } else {
         console.error(`Unknown authentication strategy: ${auth_strategy}`);
     }
@@ -49,37 +45,7 @@
     // Constants
     let server = app.listen(process.env.PORT || 5000);
 
-    const io = socket(server);
-    app.set('socketio', io);
-    let active_users = new Set();
-    io.on('connection', function (socket) {
-        socket.on('room', function (room) {
-            active_users.add(room);
-            socket.join(room);
-            sendWelcomeMsg(room);
-        });
-        socket.on('message', function (msg) {
-            var room = msg.room;
-            var data = msg.data;
-            sendStdMsg(room, data);
-        });
-        socket.on("disconnect", () => {
-            active_users.delete(socket.userId);
-            io.emit("user disconnected", socket.userId);
-        });
-    });
-
-    function sendWelcomeMsg(room) {
-        io.sockets.in(room).emit('welcome', 'Joined ' + room);
-    }
-
-    function sendStdMsg(room, synthesisid) {
-        io.sockets.in(room).emit('message', { 'type': 'message', 'synthesisid': synthesisid });
-    }
-    function sendProgressMsg(room, percentcomplete) {
-        io.sockets.in(room).emit('message', { 'type': 'progress', 'percentcomplete': percentcomplete });
-    }
-
+    io_module.initialize(server);
     server.on('error', function (e) {
         console.log(e);
         process.exit(1);
@@ -89,7 +55,7 @@
         console.log('Cesium development server stopped.');
     });
 
-    var isFirstSig = true;
+    let isFirstSig = true;
     process.on('SIGINT', function () {
         if (isFirstSig) {
             console.log('Cesium development server shutting down.');

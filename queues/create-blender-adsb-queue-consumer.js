@@ -20,7 +20,6 @@ async function createBlenderADSBFeedProcess(job) {
                 'Authorization': cred
             }
         });
-
         const adsb_feed_url = `${base_url}/flight_stream/start_opensky_feed?view=${viewport_str}`;
         const blender_response = await axios_instance.get(adsb_feed_url);
         console.log("Openskies Stream started...");
