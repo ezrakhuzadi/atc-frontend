@@ -13,16 +13,17 @@ const jwksRsa = require('jwks-rsa');
 const jwtAuthz = require('express-jwt-authz');
 // const request = require('request');
 const turf = require("@turf/turf");
-const h3 = require("h3-js");
+
 require("dotenv").config();
-const qs = require('qs');
+
 const asyncMiddleware = require('../util/asyncMiddleware');
 const axios = require('axios');
 let geojsonhint = require("@mapbox/geojsonhint");
 let passport_helper = require('./passport_helper');
 
-const socket = require('../util/io');
-const io = socket.getInstance();
+
+const { sendStdMsg } = require('../util/io');
+
 const { requiresAuth } = require('express-openid-connect');
 const { createNewPollBlenderProcess, createNewADSBFeedProcess, createNewBlenderDSSSubscriptionProcess, createNewGeofenceProcess } = require("../queues/live-blender-queue");
 
@@ -233,28 +234,29 @@ router.get("/spotlight", requiresAuth(), asyncMiddleware(async (req, response, n
   }
   lat = parseFloat(lat);
   lng = parseFloat(lng);
-  
+
   const aoi_buffer = turf.buffer(turf.point([lng, lat]), 2.5, { units: 'kilometers' });
 
   const email = userProfile.email;
   const aoi_bbox = turf.bbox(aoi_buffer);
   const lat_lng_formatted_array = [aoi_bbox[1], aoi_bbox[0], aoi_bbox[3], aoi_bbox[2]];
 
-  // createNewPollBlenderProcess({
-  //   "viewport": lat_lng_formatted_array,
-  //   "job_id": uuidv4(),
-  //   "job_type": 'poll_blender'
-  // });
-  // createNewADSBFeedProcess({
-  //   "viewport": lat_lng_formatted_array,
-  //   "job_id": uuidv4(),
-  //   "job_type": 'start_opensky_feed'
-  // });
-  // createNewBlenderDSSSubscriptionProcess({
-  //   "viewport": lat_lng_formatted_array,
-  //   "job_id": uuidv4(),
-  //   "job_type": 'create_dss_subscription'
-  // });
+  createNewPollBlenderProcess({
+    "viewport": lat_lng_formatted_array,
+    "room": email,
+    "job_id": uuidv4(),
+    "job_type": 'poll_blender'
+  });
+  createNewADSBFeedProcess({
+    "viewport": lat_lng_formatted_array,
+    "job_id": uuidv4(),
+    "job_type": 'start_opensky_feed'
+  });
+  createNewBlenderDSSSubscriptionProcess({
+    "viewport": lat_lng_formatted_array,
+    "job_id": uuidv4(),
+    "job_type": 'create_dss_subscription'
+  });
   createNewGeofenceProcess({
     "viewport": lat_lng_formatted_array,
     "userEmail": email,
@@ -263,55 +265,21 @@ router.get("/spotlight", requiresAuth(), asyncMiddleware(async (req, response, n
   });
 
 
-  const aoi_query = tile38_client.intersectsQuery('observation').bounds(...lat_lng_formatted_array).detect('inside');
-
-  try {
-
-    const flight_aoi_fence = aoi_query.
-      executeFence((err, results) => {
-
-        if (err) {
-          console.error("something went wrong! " + err);
-        } else {
-          io.sockets.in(email).emit("message", {
-            'type': 'message',
-            "alert_type": "observation_in_api",
-            "results": results
-          });
-        }
-      });
-
-    flight_aoi_fence.onClose(() => {
-      console.debug("AOI streaming closed");
-      io.sockets.in(email).emit("message", {
-        'type': 'message',
-        "alert_type": "aoi_closed",
-      });
-    });
-
-    setTimeout(() => {
-      flight_aoi_fence.close();
-    }, 60000);
-
-    response.render('spotlight', {
-      title: "Spotlight",
-      userProfile,
-      bing_key,
-      mapbox_key,
-      mapbox_id,
-      errors: {},
-      data: {
-        'successful': 1,
-        'aoi_buffer': aoi_buffer,
-        "msg": "Scanning flights in AOI and Geofences for 60 seconds",
-        "geo_fences": [],
-        "flight_declarations": []
-      }
-    });
-  } catch (err) {
-    console.log("something went wrong! " + err);
-    response.sendStatus(500);
-  }
+  response.render('spotlight', {
+    title: "Spotlight",
+    userProfile,
+    bing_key,
+    mapbox_key,
+    mapbox_id,
+    errors: {},
+    data: {
+      'successful': 1,
+      'aoi_buffer': aoi_buffer,
+      "msg": "Scanning flights in AOI and Geofences for 60 seconds",
+      "geo_fences": [],
+      "flight_declarations": []
+    }
+  });
 
 }));
 

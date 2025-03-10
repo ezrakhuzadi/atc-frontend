@@ -240,29 +240,26 @@
                   addnCls: 'humane-flatty-success'
               });
 
-              var socket = io.connect(socketHost);
-          socket.on('connect_failed', function () {
-              errorMsg('Data connection failed, please contact your administrator.');
-          });
-          socket.on('disconnect', function () {
-              console.log('disconnected');
-          });
-          socket.on('welcome', function (msg) {
-              console.log('Welcome message:', msg);
-          });
-          socket.on('connect', function () {
-              socket.emit('room', email);
-          });
-          socket.on('connect_timeout', function () {
-              console.log("timed out");
+              let socket = io.connect(socketHost);
+              socket.on('connect_failed', function () {
+                  errorMsg('Data connection failed, please contact your administrator.');
+              });
+              socket.on('disconnect', function () {
+                  console.log('disconnected');
+              });
+              socket.on('welcome', function (msg) {
+                  console.log('Welcome message:', msg);
+              });
+              socket.on('connect', function () {
+                  socket.emit('room', email);
+              });
+              socket.on('connect_timeout', function () {
+                  console.log("timed out");
 
-          });
-              socket.on('message', function (spotlight_data) {
-                
+              });
+              socket.on('message', function (spotlight_data) {                
               if (spotlight_data.type == 'message') {
-
-                  if (spotlight_data.alert_type == 'observation_in_api') {
-
+                  if (spotlight_data.alert_type == 'observation_in_aoi') {
                       const cur_result = spotlight_data.results.object;
                       // console.log(Math.floor(Date.now() / 1000) +":  " + cur_result.coordinates[1], cur_result.coordinates[0], cur_result.coordinates[2]);
                       viewer.entities.add({
@@ -279,7 +276,7 @@
                               style: Cesium.LabelStyle.FILL_AND_OUTLINE,
                           },
                           point: {
-                              pixelSize: 5,
+                              pixelSize: 8,
                               color: Cesium.Color.RED,
                               outlineWidth: 0
                           },
@@ -310,7 +307,6 @@
 
                   }
                   else if (spotlight_data.alert_type == 'geo_fence_in_aoi') {
-                    console.log(spotlight_data);
                       const result_geo_json = spotlight_data.results.objects;
 
                       for (let index = 0; index < result_geo_json.length; index++) {
@@ -331,8 +327,9 @@
                           );
 
                       }
-                  } else if (spotlight_data.alert_type == 'geo_fence_crossed') {
+                  } else if (spotlight_data.alert_type == 'observation_crosses_geofence') {
                       let d = new Date();
+                      console.log(spotlight_data);
                       addToList('<span class="date">' + d.toLocaleTimeString() + '</span> ' + spotlight_data.results);
 
                   }

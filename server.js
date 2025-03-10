@@ -3,21 +3,19 @@
     /*jshint node:true*/
 
     const express = require('express');
-    
-
-    const io_module = require('./util/io');
+    const { socketConnection } = require('./util/io');
     require("dotenv").config();
-    
+
     const spotlightNoticeboardRouter = require("./routes/spotlight_noticeboard");
     const launchpadRouter = require('./routes/launchpad');
     const auth_strategy = process.env.AUTH_STRATEGY || 'flightpassport';
     const authHandlers = {
         'flightpassport': './auth_mechanisms/flight_passport/auth_handler',
-        
-    };   
+
+    };
 
     let app = express();
-    
+
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }))
     app.set('view engine', 'ejs');
@@ -27,25 +25,27 @@
     const authHandlerPath = authHandlers[auth_strategy];
     if (authHandlerPath) {
         const authHandler = require(authHandlerPath);
-        app.use(authHandler());        
+        app.use(authHandler());
     } else {
         console.error(`Unknown authentication strategy: ${auth_strategy}`);
     }
 
     app.get('/auth', (req, res) =>
         res.oidc.login({
-          returnTo: '/noticeboard',
+            returnTo: '/noticeboard',
         })
-      );
-      
+    );
+
     app.use("/", spotlightNoticeboardRouter);
     app.use('/', launchpadRouter);
 
-    
+
     // Constants
     let server = app.listen(process.env.PORT || 5000);
 
-    io_module.initialize(server);
+    socketConnection(server);
+    // app.set('socketio', io_module.getInstance());
+
     server.on('error', function (e) {
         console.log(e);
         process.exit(1);
