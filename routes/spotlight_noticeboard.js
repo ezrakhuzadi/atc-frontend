@@ -546,6 +546,7 @@ router.get("/noticeboard", requiresAuth(), asyncMiddleware(async (req, response,
 
   try {
     const passport_token = await passport_helper.getPassportToken();
+    console.log(passport_token)
     const cred = `Bearer ${passport_token}`;
     const declaration_url = `${base_url}/flight_declaration_ops/flight_declaration?start_date=${s_date}&end_date=${e_date}&page=${page}`;
 

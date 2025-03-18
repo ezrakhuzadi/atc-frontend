@@ -41,9 +41,11 @@ module.exports = {
 
         return accessToken['access_token'];
       } else {
+        console.log(res);
         throw new Error("Error in Passport Query, response not 200");
       }
     } catch (error) {
+      console.log(error);
       return { error: error.message };
     }
   }
