@@ -60,12 +60,17 @@ router.get("/", (req, res) => {
 });
 
 router.get("/noticeboard/map", requiresAuth(), asyncMiddleware(async (req, response, next) => {
-  const userProfile = await req.oidc.fetchUserInfo();
+
+  let userProfile;
+  try {
+    userProfile = await req.oidc.fetchUserInfo();
+  } catch (error) {
+    return response.redirect('/');
+  }
+
   const { start_date: s_date, end_date: e_date, page = 1 } = req.query;
   const base_url = process.env.BLENDER_BASE_URL || 'http://local.test:8000';
-  const bing_key = process.env.BING_KEY || 'get-yours-at-https://www.bingmapsportal.com/';
   const mapbox_key = process.env.MAPBOX_KEY || 'thisIsMyAccessToken';
-  const mapbox_id = process.env.MAPBOX_ID || 'this_is_my_mapbox_map_id';
 
   const parseDate = (dateStr) => {
     try {
@@ -85,10 +90,7 @@ router.get("/noticeboard/map", requiresAuth(), asyncMiddleware(async (req, respo
     return response.render('noticeboard-map', {
       title: "Noticeboard",
       userProfile,
-      bing_key,
       mapbox_key,
-      mapbox_id,
-
       errors: {},
       data: { 'results': [], 'successful': 'NA' }
     }, (ren_err, html) => response.send(html));
@@ -110,10 +112,7 @@ router.get("/noticeboard/map", requiresAuth(), asyncMiddleware(async (req, respo
       response.render('noticeboard-map', {
         title: "Noticeboard",
         userProfile,
-        bing_key,
         mapbox_key,
-        mapbox_id,
-
         successful: 1,
         errors: {},
         data: blender_response.data
@@ -129,12 +128,18 @@ router.get("/noticeboard/map", requiresAuth(), asyncMiddleware(async (req, respo
 
 
 router.get("/noticeboard/globe", requiresAuth(), asyncMiddleware(async (req, response, next) => {
-  const userProfile = await req.oidc.fetchUserInfo();
+
+  let userProfile;
+  try {
+    userProfile = await req.oidc.fetchUserInfo();
+  } catch (error) {
+    return response.redirect('/');
+  }
+
   let req_query = req.query;
   const base_url = process.env.BLENDER_BASE_URL || 'http://local.test:8000';
-  const bing_key = process.env.BING_KEY || 'get-yours-at-https://www.bingmapsportal.com/';
+
   const mapbox_key = process.env.MAPBOX_KEY || 'thisIsMyAccessToken';
-  const mapbox_id = process.env.MAPBOX_ID || 'this_is_my_mapbox_map_id';
   let s_date = req_query.start_date;
   let page = req_query.page || 1;
   let e_date = req_query.end_date;
@@ -155,9 +160,7 @@ router.get("/noticeboard/globe", requiresAuth(), asyncMiddleware(async (req, res
     return response.render('noticeboard-globe', {
       title: "Noticeboard",
       userProfile,
-      bing_key,
       mapbox_key,
-      mapbox_id,
       errors: {},
       data: {
         'results': [],
@@ -182,9 +185,7 @@ router.get("/noticeboard/globe", requiresAuth(), asyncMiddleware(async (req, res
         response.render('noticeboard-globe', {
           title: "Noticeboard",
           userProfile,
-          bing_key,
           mapbox_key,
-          mapbox_id,
           successful: 1,
           errors: {},
           data: blender_response.data
@@ -205,10 +206,16 @@ router.get("/noticeboard/globe", requiresAuth(), asyncMiddleware(async (req, res
 
 
 router.get("/spotlight", requiresAuth(), asyncMiddleware(async (req, response, next) => {
-  const userProfile = await req.oidc.fetchUserInfo();
-  const bing_key = process.env.BING_KEY || 'get-yours-at-https://www.bingmapsportal.com/';
+
+  let userProfile;
+  try {
+    userProfile = await req.oidc.fetchUserInfo();
+  } catch (error) {
+    return response.redirect('/');
+  }
+
+
   const mapbox_key = process.env.MAPBOX_KEY || 'thisIsMyAccessToken';
-  const mapbox_id = process.env.MAPBOX_ID || 'this_is_my_mapbox_map_id';
   let { lat, lng } = req.query;
 
   function isValidLatLng(str) {
@@ -224,10 +231,7 @@ router.get("/spotlight", requiresAuth(), asyncMiddleware(async (req, response, n
     return response.render('spotlight', {
       title: "Spotlight",
       userProfile,
-      bing_key,
       mapbox_key,
-      mapbox_id,
-
       errors: {},
       data: { 'successful': 'NA' }
     });
@@ -268,9 +272,7 @@ router.get("/spotlight", requiresAuth(), asyncMiddleware(async (req, response, n
   response.render('spotlight', {
     title: "Spotlight",
     userProfile,
-    bing_key,
     mapbox_key,
-    mapbox_id,
     errors: {},
     data: {
       'successful': 1,
@@ -515,7 +517,14 @@ router.post("/update_flight_state/:uuid", requiresAuth(), asyncMiddleware(async 
 
 
 router.get("/noticeboard", requiresAuth(), asyncMiddleware(async (req, response, next) => {
-  const userProfile = await req.oidc.fetchUserInfo();
+
+  let userProfile;
+  try {
+    userProfile = await req.oidc.fetchUserInfo();
+  } catch (error) {
+    return response.redirect('/');
+  }
+
   const { start_date: s_date, end_date: e_date, page = 1 } = req.query;
   const base_url = process.env.BLENDER_BASE_URL || 'http://local.test:8000';
 
@@ -580,7 +589,13 @@ router.get("/noticeboard", requiresAuth(), asyncMiddleware(async (req, response,
 /* GET user profile. */
 router.get('/user', requiresAuth(), async function (req, res, next) {
 
-  const userProfile = await req.oidc.fetchUserInfo();
+  let userProfile;
+  try {
+    userProfile = await req.oidc.fetchUserInfo();
+  } catch (error) {
+    return response.redirect('/');
+  }
+
   res.render('user', {
     userProfile: JSON.stringify(userProfile, null, 2),
     title: 'Profile page'

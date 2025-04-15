@@ -195,14 +195,14 @@
         const s_parse = Date.parse(start_date);
         const timeline_start = new Date(s_parse);
         const user_name = '<%= userProfile.email %>';
-        const bing = new Cesium.ImageryLayer.fromProviderAsync(
-            Cesium.BingMapsImageryProvider.fromUrl(
-        "https://dev.virtualearth.net", {
-            key:'<%= bing_key %>',
-            mapStyle: Cesium.BingMapsStyle.AERIAL
-        })
+        
+        
+        const mapbox = new Cesium.ImageryLayer.fromProviderAsync(
+          new Cesium.MapboxImageryProvider({
+              mapId: 'mapbox.satellite',
+              accessToken: '<%= mapbox_key %>'
+          })
         );
-
         
         var viewer = new Cesium.Viewer('cesiumContainer', {
             "geocoder": false,
@@ -221,7 +221,7 @@
         // var start = Cesium.JulianDate.fromDate(new Date(2015, 2, 25, 16));
         // var stop = Cesium.JulianDate.addSeconds(start, 360, new Cesium.JulianDate());
 
-        viewer.imageryLayers.add(bing);
+        viewer.imageryLayers.add(mapbox);
         let scene = viewer.scene;
         let camera = viewer.camera;
         var cameralat;

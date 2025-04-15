@@ -217,8 +217,9 @@
       // setView will set the initial map view to the location at coordinates
       // 13 represents the initial zoom level with higher values being more zoomed in
       var map = L.map('map', { attributionControl: false }).setView([43.659752, -79.378161], 2);
+      var myAttrControl = L.control.attribution().addTo(map);
+      myAttrControl.setPrefix('<a href="https://leafletjs.com/">Leaflet</a>');
 
-      // Adds the basemap tiles to your web map
       // Additional providers are available at: https://leaflet-extras.github.io/leaflet-providers/preview/
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',

@@ -50,6 +50,14 @@ let flight_operation_validate = [
 ];
 
 router.post('/launchpad/submit-declaration', flight_operation_validate, requiresAuth(), async function (req, res, next) {
+
+  let userProfile;
+  try {
+    userProfile = await req.oidc.fetchUserInfo();
+  } catch (error) {
+    return res.redirect('/');
+  }
+
   const errors = validationResult(req);
   const operators = process.env.OPERATORS || "";
 
@@ -60,7 +68,7 @@ router.post('/launchpad/submit-declaration', flight_operation_validate, requires
       errors: errors.mapped(),
       operators: operators,
       user: req.user,
-      userProfile: await req.oidc.fetchUserInfo()
+      userProfile: userProfile
     });
   }
 
@@ -117,7 +125,7 @@ router.post('/launchpad/submit-declaration', flight_operation_validate, requires
         errors: [],
         data: response.data,
         user: req.user,
-        userProfile: await req.oidc.fetchUserInfo()
+        userProfile: userProfile
       });
     } else {
       return res.render('error-in-submission', {
@@ -125,7 +133,7 @@ router.post('/launchpad/submit-declaration', flight_operation_validate, requires
         errors: response.data,
 
         user: req.user,
-        userProfile: await req.oidc.fetchUserInfo(),
+        userProfile: userProfile,
         data: {}
       });
     }
@@ -137,7 +145,7 @@ router.post('/launchpad/submit-declaration', flight_operation_validate, requires
       data: {},
 
       user: req.user,
-      userProfile: await req.oidc.fetchUserInfo()
+      userProfile: userProfile
     });
   }
 });
@@ -145,15 +153,27 @@ router.post('/launchpad/submit-declaration', flight_operation_validate, requires
 
 router.get('/launchpad', requiresAuth(), async (req, response, next) => {
 
-  const userProfile = await req.oidc.fetchUserInfo();
+  let userProfile;
+  try {
+    userProfile = await req.oidc.fetchUserInfo();
+  } catch (error) {
+    return response.redirect('/');
+  }
   const operators = process.env.OPERATORS || "";
   response.render('launchpad', { 'operators': operators, 'user': req.user, 'errors': [], 'userProfile': userProfile });
 });
 
 router.get('/launchpad/operation-status/:uuid', asyncMiddleware(async (req, res, next) => {
+
+  let userProfile;
+  try {
+    userProfile = await req.oidc.fetchUserInfo();
+  } catch (error) {
+    return response.redirect('/');
+  }
   const operationUUID = req.params.uuid;
 
-  const userProfile = await req.oidc.fetchUserInfo();
+  
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationUUID);
 
   if (!isUUID) {
