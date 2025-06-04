@@ -209,12 +209,13 @@
         let view_data = <%- JSON.stringify(data) %>;
 
         if (lat !== 0 && lng !== 0) {
+        
+              let manual_spotlight_controls_cont  = document.getElementById('manual_spotlight_controls');
+              manual_spotlight_controls_cont.classList.add('d-none');
             const lat_cont = document.getElementById('spotlight_latitude');
             const lng_cont = document.getElementById('spotlight_longitude');
             lat_cont.innerText = parseFloat(lat).toFixed(2);
             lng_cont.innerText =  parseFloat(lng).toFixed(2);
-            let manual_spotlight_controls_cont  = document.getElementById('manual_spotlight_controls');
-            manual_spotlight_controls_cont.classList.add('d-none');
             let aoi_buffer = view_data['aoi_buffer'];
             let aoi = viewer.dataSources.add(Cesium.GeoJsonDataSource.load(aoi_buffer, {
                 stroke: Cesium.Color.BLACK,
@@ -258,14 +259,14 @@
                         // label: {text: s},
                         label: {
                             text: spotlight_data.results.id,
-                            font: "10px Helvetica",
+                            font: "12px Helvetica",
                             fillColor: Cesium.Color.WHITE,
                             outlineColor: Cesium.Color.BLACK,
-                            outlineWidth: 1,
+                            outlineWidth: 2,
                             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
                         },
                         point: {
-                            pixelSize: 8,
+                            pixelSize: 10,
                             color: Cesium.Color.RED,
                             outlineWidth: 0
                         },
@@ -292,6 +293,9 @@
 
                     let spinner_cont = document.getElementById("spinner-cont");
                     spinner_cont.classList.add("d-none");
+
+                  let manual_spotlight_controls_cont  = document.getElementById('manual_spotlight_controls');
+                  manual_spotlight_controls_cont.classList.remove('d-none');
                     clearList();
 
                 }
