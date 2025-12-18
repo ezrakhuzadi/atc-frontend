@@ -324,8 +324,9 @@
 
                     for (let index = 0; index < result_geo_json.length; index++) {
                         const geo_json_element = result_geo_json[index]['object'];
+                        console.log(result_geo_json[index])
                         const flight_declaration_heights = result_geo_json[index]['fields'];
-                        var dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
+                        let dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
                             function (dataSource) {
                                 var p = dataSource.entities.values;
                                 for (var i = 0; i < p.length; i++) {
