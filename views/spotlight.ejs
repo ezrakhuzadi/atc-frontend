@@ -325,19 +325,24 @@
                     for (let index = 0; index < result_geo_json.length; index++) {
                         const geo_json_element = result_geo_json[index]['object'];
                         console.log(result_geo_json[index])
-                        const flight_declaration_heights = result_geo_json[index]['fields'];
+                        const flight_declaration_fields = result_geo_json[index]['fields'];
+                        const heights = flight_declaration_fields.filter(item => typeof item === 'number');
+                        const minHeight = Math.min(...heights);
+                        const maxHeight = Math.max(...heights);
+                        const strings = flight_declaration_fields.filter(item => typeof item === 'string');
+                        const [id, manager, state] = strings;
                         let dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
-                            function (dataSource) {
-                                var p = dataSource.entities.values;
-                                for (var i = 0; i < p.length; i++) {
-                                    p[i].polygon.height = flight_declaration_heights[1]; // or height property
-                                    p[i].polygon.extrudedHeight = flight_declaration_heights[
-                                        0]; // or height property
-                                    p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
-                                        p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
-                                }
-                                viewer.dataSources.add(dataSource);
+                          function (dataSource) {
+                            var p = dataSource.entities.values;
+                            for (var i = 0; i < p.length; i++) {
+                              p[i].polygon.height = flight_declaration_heights[1]; // or height property
+                              p[i].polygon.extrudedHeight = flight_declaration_heights[0]; // or height property
+                              p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
+                                p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
+                              p[i].description = `ID: ${id}<br>Manager: ${manager}<br>State: ${state}`;
                             }
+                            viewer.dataSources.add(dataSource);
+                          }
                         );
 
                     }
