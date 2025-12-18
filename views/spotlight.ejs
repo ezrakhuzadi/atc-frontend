@@ -98,6 +98,8 @@
               <br />
               <img src="/assets/img/spinner.gif" height="30px" />
             </div>
+            <br>
+            <p id="clicked-entity-description"></p>
             <div class="live-updates" id="live-updates">
               <ul class="text-right list-inline" id="latest-status"></ul>
             </div>
@@ -115,6 +117,7 @@
 
     <script type="text/javascript">
         var socketHost = location.origin.replace(/^http/, 'ws');
+        let clicked_entity =  document.getElementById("clicked-entity-description");
         let list = document.getElementById("latest-status");
         var addToList = function (item_value) {
             while (list.children.length >= 3) {
@@ -156,9 +159,12 @@
           // Subscribe to changes in selectedEntity
           viewer.selectedEntityChanged.addEventListener(function(entity) {
               if (entity) {
+                  clicked_entity.innerHTML = "";
                   // Display custom UI or pop-up with entity properties
                   if (entity.description) {
-                    console.log(entity.description);
+                    clicked_entity.innerHTML = entity.description.getValue();
+                  } else{
+                    clicked_entity.innerHTML = "No additional information available.";
                   }
               }
           });
