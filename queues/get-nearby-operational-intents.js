@@ -23,8 +23,8 @@ function setFlightDeclarationsLocally(query_uuid, operational_intent_detail) {
     for (const operational_intent_feature of operational_intent_detail.features) {
         // Create a new operational intent
         
-        let upper_limit = operational_intent_feature['properties']['max_altitude']['meters'];
-        let lower_limit = operational_intent_feature['properties']['min_altitude']['meters'];
+        let upper_limit = operational_intent_feature['properties']['max_altitude'];
+        let lower_limit = operational_intent_feature['properties']['min_altitude'];
         console.debug("Setting nearby operational intent geojson..");
         random_operational_intent_id = uuidv4();
 
