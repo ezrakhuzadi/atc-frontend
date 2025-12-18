@@ -255,7 +255,7 @@ router.get("/spotlight", requiresAuth(), asyncMiddleware(async (req, response, n
   lat = parseFloat(lat);
   lng = parseFloat(lng);
 
-  const aoi_buffer = turf.buffer(turf.point([lng, lat]), 2.5, { units: 'kilometers' });
+  const aoi_buffer = turf.buffer(turf.point([lng, lat]), 4.5, { units: 'kilometers' });
 
   const email = userProfile.email;
   const aoi_bbox = turf.bbox(aoi_buffer);

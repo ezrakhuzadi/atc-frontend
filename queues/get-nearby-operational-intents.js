@@ -73,7 +73,7 @@ const getNearbyOperationalIntentsProcess = async (job) => {
     } catch (error) {
         console.error("Error in retrieving nearby operational intents:", error.response?.data || error.message);
     }
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 2500));
         const operational_intent_query = tile38_client.intersectsQuery('operational_intents_in_aoi').bounds(viewport[0], viewport[1], viewport[2], viewport[3]);
 
         operational_intent_query.execute().then(operational_intent_search_results => {

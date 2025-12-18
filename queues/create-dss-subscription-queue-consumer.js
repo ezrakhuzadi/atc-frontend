@@ -20,7 +20,7 @@ const createBlenderDSSSubscriptionProcess = async (job) => {
         });
         const viewport_str = viewport.join(',');
         const dss_subscription_create_url = `${base_url}/rid/create_dss_subscription?view=${viewport_str}`;
-
+        console.log("Creating DSS Subscription...");
         const blender_response = await axios_instance.put(dss_subscription_create_url);
         console.log("DSS Subscription started...");
     } catch (error) {
