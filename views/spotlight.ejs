@@ -335,8 +335,8 @@
                           function (dataSource) {
                             var p = dataSource.entities.values;
                             for (var i = 0; i < p.length; i++) {
-                              p[i].polygon.height = flight_declaration_heights[1]; // or height property
-                              p[i].polygon.extrudedHeight = flight_declaration_heights[0]; // or height property
+                              p[i].polygon.height = minHeight; // or height property
+                              p[i].polygon.extrudedHeight = maxHeight; // or height property
                               p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
                                 p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
                               p[i].description = `ID: ${id}<br>Manager: ${manager}<br>State: ${state}`;
