@@ -11,6 +11,7 @@
   const auth_strategy = process.env.AUTH_STRATEGY || "flightpassport";
   const authHandlers = {
     flightpassport: "./auth_mechanisms/flight_passport/auth_handler",
+    dev_bypass: "./auth_mechanisms/dev_bypass/auth_handler",
   };
 
   let app = express();

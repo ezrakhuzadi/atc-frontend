@@ -1,110 +1,72 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <title>Openskies Flight Spotlight</title>
-    <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
-    />
-    <link rel="icon" href="/assets/img/favicon.png" />
-    <link
-      href="https://fonts.googleapis.com/css?family=Karla"
-      rel="stylesheet"
-      type="text/css"
-    />
-    <link
-      href="https://fonts.googleapis.com/css?family=Inconsolata"
-      rel="stylesheet"
-      type="text/css"
-    />
 
-    <link
-      type="text/css"
-      rel="stylesheet"
-      href="/assets/css/bootstrap.min.css"
-    />
-    <link
-      type="text/css"
-      rel="stylesheet"
-      href="/assets/css/bootstrap-icons.css"
-    />
-    <link rel="stylesheet" type="text/css" href="/assets/css/base.css" />
-    <link rel="stylesheet" href="/assets/js/humane/flatty.css" />
-    <script
-      type="text/javascript"
-      src="/assets/js/jquery/jquery.min.js"
-    ></script>
-    <script
-      type="text/javascript"
-      src="/assets/js/bootstrap/bootstrap.bundle.min.js"
-    ></script>
-    <script
-      type="text/javascript"
-      src="/assets/js/socket.io/socket.io.min.js"
-    ></script>
-    <script
-      type="text/javascript"
-      src="/assets/js/humane/humane.min.js"
-    ></script>
-    <script src="/assets/Build/Cesium/Cesium.js"></script>
+<head>
+  <title>Openskies Flight Spotlight</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="icon" href="/assets/img/favicon.png" />
+  <link href="https://fonts.googleapis.com/css?family=Karla" rel="stylesheet" type="text/css" />
+  <link href="https://fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" />
 
-    <style>
-      @import url(/assets/Build/Cesium/Widgets/widgets.css);
-    </style>
-  </head>
+  <link type="text/css" rel="stylesheet" href="/assets/css/bootstrap.min.css" />
+  <link type="text/css" rel="stylesheet" href="/assets/css/bootstrap-icons.css" />
+  <link rel="stylesheet" type="text/css" href="/assets/css/base.css" />
+  <link rel="stylesheet" href="/assets/js/humane/flatty.css" />
+  <script type="text/javascript" src="/assets/js/jquery/jquery.min.js"></script>
+  <script type="text/javascript" src="/assets/js/bootstrap/bootstrap.bundle.min.js"></script>
+  <script type="text/javascript" src="/assets/js/socket.io/socket.io.min.js"></script>
+  <script type="text/javascript" src="/assets/js/humane/humane.min.js"></script>
+  <script src="/assets/Build/Cesium/Cesium.js"></script>
 
-  <body>
-    <%- include('navigation') -%>
+  <style>
+    @import url(/assets/Build/Cesium/Widgets/widgets.css);
+  </style>
+</head>
+
+<body>
+  <%- include('navigation') -%>
 
     <div class="container-fluid">
       <div class="row">
         <div class="col-sm-4 col-md-4 main">
           <br />
           <% if (Object.keys(errors).length) { %>
-          <h5 class="errors-heading">Oops, please correct the following:</h5>
-          <ul class="errors-list">
-            <% Object.values(errors).forEach(error=> { %>
-            <li class=""><%= error.msg %></li>
-            <% }) %>
-          </ul>
-          <% } %>
-          <div class="information">
-            <div>
-              <h6>
-                Select Spotlight
-                <small id="lat_lng" class="text-muted"
-                  >Latitude: <span id="spotlight_latitude"></span> Longitude:
-                  <span id="spotlight_longitude"></span
-                ></small>
-              </h6>
-            </div>
-            <div id="manual_spotlight_controls">
-              <button
-                onclick="stream_flights()"
-                class="button"
-                id="retrive_flights"
-                type="submit"
-              >
-                Stream flights</button
-              ><br />
-              <small class="text-muted"
-                >Zoom and pan globe with your mouse to your area of interest and
-                click on stream flights</small
-              >
-            </div>
+            <h5 class="errors-heading">Oops, please correct the following:</h5>
+            <ul class="errors-list">
+              <% Object.values(errors).forEach(error=> { %>
+                <li class="">
+                  <%= error.msg %>
+                </li>
+                <% }) %>
+            </ul>
+            <% } %>
+              <div class="information">
+                <div>
+                  <h6>
+                    Select Spotlight
+                    <small id="lat_lng" class="text-muted">Latitude: <span id="spotlight_latitude"></span> Longitude:
+                      <span id="spotlight_longitude"></span></small>
+                  </h6>
+                </div>
+                <div id="manual_spotlight_controls">
+                  <button onclick="stream_flights()" class="button" id="retrive_flights" type="submit">
+                    Stream flights</button><br />
+                  <small class="text-muted">Zoom and pan globe with your mouse to your area of interest and
+                    click on stream flights</small>
+                </div>
 
-            <div class="d-none loading-spinner" id="spinner-cont">
-              <br />
-              <img src="/assets/img/spinner.gif" height="30px" />
-            </div>
-            <br>
-            <p id="clicked-entity-description"></p>
-            <div class="live-updates" id="live-updates">
-              <ul class="text-right list-inline" id="latest-status"></ul>
-            </div>
-            <hr />
-          </div>
+                <div class="d-none loading-spinner" id="spinner-cont">
+                  <br />
+                  <img src="/assets/img/spinner.gif" height="30px" />
+                </div>
+                <br>
+                <p id="clicked-entity-description"></p>
+                <div class="live-updates" id="live-updates">
+                  <ul class="text-right list-inline" id="latest-status"></ul>
+                </div>
+                <hr />
+              </div>
         </div>
 
         <div class="col-sm-8 col-md-8 sidebar">
@@ -115,59 +77,127 @@
 
     <%- include('footer') -%>
 
-    <script type="text/javascript">
+      <!-- Robust Data Injection: Store data in a non-executable script block -->
+      <script id="server_data" type="application/json">
+        <%- JSON.stringify(data) %>
+    </script>
+
+      <script type="text/javascript">
+        console.log("Spotlight script loaded");
         var socketHost = location.origin.replace(/^http/, 'ws');
-        let clicked_entity =  document.getElementById("clicked-entity-description");
+        let clicked_entity = document.getElementById("clicked-entity-description");
         let list = document.getElementById("latest-status");
         var addToList = function (item_value) {
-            while (list.children.length >= 3) {
-                list.removeChild(list.firstChild);
-            }
-            var item = document.createElement("li");
-            item.innerHTML = item_value;
-            list.appendChild(item);
+          while (list.children.length >= 3) {
+            list.removeChild(list.firstChild);
+          }
+          var item = document.createElement("li");
+          item.innerHTML = item_value;
+          list.appendChild(item);
         }
 
         var clearList = function () {
-            list.innerHTML = "";
+          list.innerHTML = "";
         }
 
         const email = '<%= userProfile.email %>';
-        
-        const mapbox = new Cesium.ImageryLayer.fromProviderAsync(
-          new Cesium.MapboxImageryProvider({
-              mapId: 'mapbox.satellite',
-              accessToken: '<%= mapbox_key %>'
-          })
-        );
-        
+
+        // Initialize Viewer with no default imagery
         var viewer = new Cesium.Viewer('cesiumContainer', {
-            "geocoder": false,
-            "homeButton": false,
-            "baseLayerPicker": false,
-            "infoBox": false,
-            "sceneModePicker": false,
-            "animation": false,
-            "selectionIndicator": false,
-            "fullscreenButton": false,
-            "timeline": false,
-            "navigationHelpButton": false
+          geocoder: false,
+          homeButton: false,
+          baseLayerPicker: false,
+          infoBox: false,
+          sceneModePicker: false,
+          animation: false,
+          selectionIndicator: false,
+          fullscreenButton: false,
+          timeline: false,
+          navigationHelpButton: false,
+          imageryProvider: false // Explicitly disable constructor imagery to avoid issues
         });
 
-        viewer.imageryLayers.add(mapbox);
-
-          // Subscribe to changes in selectedEntity
-          viewer.selectedEntityChanged.addEventListener(function(entity) {
-              if (entity) {
-                  clicked_entity.innerHTML = "";
-                  // Display custom UI or pop-up with entity properties
-                  if (entity.description) {
-                    clicked_entity.innerHTML = entity.description.getValue();
-                  } else{
-                    clicked_entity.innerHTML = "No additional information available.";
-                  }
-              }
+        // Use UrlTemplateImageryProvider (XYZ tiles) for maximum stability
+        // This bypasses ArcGisMapServer metadata requests which were crashing
+        try {
+          const esriImagery = new Cesium.UrlTemplateImageryProvider({
+            url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            credit: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community'
           });
+          viewer.imageryLayers.addImageryProvider(esriImagery);
+          console.log("Esri XYZ Imagery added manually");
+        } catch (err) {
+          console.error("Failed to add Esri Imagery", err);
+        }
+
+        // Set default view to Irvine, CA
+        viewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(-117.8265, 33.6846, 5000) // 5km up
+        });
+
+        // --- DEBUG PANEL ---
+        const debugPanel = document.createElement('div');
+        debugPanel.style.position = 'absolute';
+        debugPanel.style.top = '10px';
+        debugPanel.style.left = '10px';
+        debugPanel.style.backgroundColor = 'rgba(0,0,0,0.7)';
+        debugPanel.style.color = 'lime';
+        debugPanel.style.fontFamily = 'monospace';
+        debugPanel.style.padding = '10px';
+        debugPanel.style.zIndex = '9999';
+        debugPanel.style.maxWidth = '400px';
+        debugPanel.innerHTML = '<strong>Debug Console</strong><br>';
+        document.body.appendChild(debugPanel);
+
+        function logDebug(msg) {
+          const time = new Date().toLocaleTimeString();
+          debugPanel.innerHTML += `[${time}] ${msg}<br>`;
+          console.log(msg);
+        }
+
+        logDebug("Viewer initialized.");
+        logDebug("Added Esri XYZ Imagery.");
+
+        setTimeout(() => {
+          const imageryLayer = viewer.imageryLayers.get(0);
+          if (imageryLayer) {
+            logDebug("Base layer found (Index 0).");
+            // Monitor tile load events if possible, or just check provider status
+            if (imageryLayer.imageryProvider.ready) {
+              logDebug("Provider ready: true");
+            } else {
+              logDebug("Provider ready: false (loading...)");
+            }
+          } else {
+            logDebug("ERROR: No base imagery layer found!");
+          }
+        }, 1000); // Check after 1s for better async visibility
+
+        viewer.scene.globe.tileLoadProgressEvent.addEventListener(function (curr) {
+          if (curr == 0) {
+            // logDebug("All tiles loaded.");
+          } else if (curr % 5 == 0) {
+            // logDebug("Loading tiles... remaining: " + curr);
+          }
+        });
+
+        viewer.scene.renderError.addEventListener(function (scene, error) {
+          logDebug("RENDER ERROR: " + error);
+        });
+        // -------------------
+
+        // Subscribe to changes in selectedEntity
+        viewer.selectedEntityChanged.addEventListener(function (entity) {
+          if (entity) {
+            clicked_entity.innerHTML = "";
+            // Display custom UI or pop-up with entity properties
+            if (entity.description) {
+              clicked_entity.innerHTML = entity.description.getValue();
+            } else {
+              clicked_entity.innerHTML = "No additional information available.";
+            }
+          }
+        });
         var scene = viewer.scene;
         var clock = viewer.clock;
         var camera = viewer.camera;
@@ -176,35 +206,46 @@
         var cameralng;
 
 
-        camera.moveStart.addEventListener(function() {
-            // the camera started to move
+        camera.moveStart.addEventListener(function () {
+          // the camera started to move
         });
-        camera.moveEnd.addEventListener(function() {
-            // the camera stopped moving
-            let center =get_globe_center();
-            const lat_cont = document.getElementById('spotlight_latitude');
-            const lng_cont = document.getElementById('spotlight_longitude');
-            lat_cont.innerText = parseFloat(center.lat).toFixed(2);
-            lng_cont.innerText =  parseFloat(center.lng).toFixed(2);
+        camera.moveEnd.addEventListener(function () {
+          // the camera stopped moving
+          let center = get_globe_center();
+          const lat_cont = document.getElementById('spotlight_latitude');
+          const lng_cont = document.getElementById('spotlight_longitude');
+          lat_cont.innerText = parseFloat(center.lat).toFixed(2);
+          lng_cont.innerText = parseFloat(center.lng).toFixed(2);
         });
         function remove_spaces(string) {
-            return string.replace(/\n/g, "").replace(/ /g, '');
+          return string.replace(/\n/g, "").replace(/ /g, '');
         }
         function get_globe_center() {
-            var windowPosition = new Cesium.Cartesian2(viewer.container.clientWidth / 2, viewer.container.clientHeight / 2);
-            var pickPosition = viewer.camera.pickEllipsoid(windowPosition);
-            var pickPositionCartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(pickPosition);
-            const lng = pickPositionCartographic.longitude * (180 / Math.PI);
-            const lat = pickPositionCartographic.latitude * (180 / Math.PI);
+          var windowPosition = new Cesium.Cartesian2(viewer.container.clientWidth / 2, viewer.container.clientHeight / 2);
+          var pickPosition = viewer.camera.pickEllipsoid(windowPosition);
+          if (!pickPosition) {
+            return { "lat": 0, "lng": 0 };
+          }
+          var pickPositionCartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(pickPosition);
+          const lng = pickPositionCartographic.longitude * (180 / Math.PI);
+          const lat = pickPositionCartographic.latitude * (180 / Math.PI);
 
-            return { "lat": lat, "lng": lng };
+          return { "lat": lat, "lng": lng };
         }
 
 
         function stream_flights() {
-            const center = get_globe_center();
-            let url = '?lat=' + center['lat'] + '&lng=' + center['lng'];
-            window.location.href = url;
+          const center = get_globe_center();
+          // If we are essentially at 0,0 (start) or user wants default, use Irvine
+          let lat = center['lat'];
+          let lng = center['lng'];
+          // Default to Irvine if user hasn't moved much or it's 0,0
+          if (Math.abs(lat) < 1 && Math.abs(lng) < 1) {
+            lat = 33.6846;
+            lng = -117.8265;
+          }
+          let url = '?lat=' + lat + '&lng=' + lng;
+          window.location.href = url;
         }
 
 
@@ -215,171 +256,188 @@
         let lng = date_params.get('lng');
 
         if (!lat) {
-            lat = 0;
+          lat = 0;
         }
 
         if (!lng) {
-            lng = 0;
+          lng = 0;
         }
 
-        let view_data = <%- JSON.stringify(data) %>;
+        // Robust data loading: Parse from the JSON script block explicitly
+        let view_data = {};
+        try {
+          const el = document.getElementById('server_data');
+          if (el && el.textContent) {
+            view_data = JSON.parse(el.textContent);
+          }
+        } catch (e) {
+          console.error("Data parse error", e);
+        }
 
         if (lat !== 0 && lng !== 0) {
-        
-              let manual_spotlight_controls_cont  = document.getElementById('manual_spotlight_controls');
-              manual_spotlight_controls_cont.classList.add('d-none');
-            const lat_cont = document.getElementById('spotlight_latitude');
-            const lng_cont = document.getElementById('spotlight_longitude');
-            lat_cont.innerText = parseFloat(lat).toFixed(2);
-            lng_cont.innerText =  parseFloat(lng).toFixed(2);
+
+          let manual_spotlight_controls_cont = document.getElementById('manual_spotlight_controls');
+          manual_spotlight_controls_cont.classList.add('d-none');
+          const lat_cont = document.getElementById('spotlight_latitude');
+          const lng_cont = document.getElementById('spotlight_longitude');
+          lat_cont.innerText = parseFloat(lat).toFixed(2);
+          lng_cont.innerText = parseFloat(lng).toFixed(2);
+
+          // Safely load AOI buffer if available
+          if (view_data && view_data['aoi_buffer']) {
             let aoi_buffer = view_data['aoi_buffer'];
             let aoi = viewer.dataSources.add(Cesium.GeoJsonDataSource.load(aoi_buffer, {
-                stroke: Cesium.Color.BLACK,
-                fill: Cesium.Color.WHITE.withAlpha(0.2),
-                strokeWidth: 3
+              stroke: Cesium.Color.BLACK,
+              fill: Cesium.Color.WHITE.withAlpha(0.2),
+              strokeWidth: 3
             }));
             viewer.zoomTo(aoi);
-            let spinner_cont = document.getElementById("spinner-cont");
-            spinner_cont.classList.remove("d-none");
+          }
 
+          let spinner_cont = document.getElementById("spinner-cont");
+          spinner_cont.classList.remove("d-none"); // Show spinner
+
+          if (view_data && view_data['msg']) {
             humane.log(view_data['msg'], {
-                addnCls: 'humane-flatty-success'
+              addnCls: 'humane-flatty-success'
             });
+          }
 
-            let socket = io.connect(socketHost);
-            socket.on('connect_failed', function () {
-                errorMsg('Data connection failed, please contact your administrator.');
-            });
-            socket.on('disconnect', function () {
-                console.log('disconnected');
-            });
-            socket.on('welcome', function (msg) {
-                console.log('Welcome message:', msg);
-            });
-            socket.on('connect', function () {
-                socket.emit('room', email);
-            });
-            socket.on('connect_timeout', function () {
-                console.log("timed out");
+          let socket = io.connect(socketHost);
+          socket.on('connect_failed', function () {
+            errorMsg('Data connection failed, please contact your administrator.');
+          });
+          socket.on('disconnect', function () {
+            console.log('disconnected');
+          });
+          socket.on('welcome', function (msg) {
+            console.log('Welcome message:', msg);
+          });
+          socket.on('connect', function () {
+            socket.emit('room', email);
+          });
+          socket.on('connect_timeout', function () {
+            console.log("timed out");
 
-            });
-            socket.on('message', function (spotlight_data) {
+          });
+          socket.on('message', function (spotlight_data) {
             if (spotlight_data.type == 'message') {
-                if (spotlight_data.alert_type == 'observation_in_aoi') {
-                    const cur_result = spotlight_data.results.object;
-                    // console.log(Math.floor(Date.now() / 1000) +":  " + cur_result.coordinates[1], cur_result.coordinates[0], cur_result.coordinates[2]);
-                    viewer.entities.add({
-                        position: Cesium.Cartesian3.fromDegrees(cur_result.coordinates[0], cur_result
-                            .coordinates[1], cur_result.coordinates[2]),
+              if (spotlight_data.alert_type == 'observation_in_aoi') {
+                const cur_result = spotlight_data.results.object;
+                // console.log(Math.floor(Date.now() / 1000) +":  " + cur_result.coordinates[1], cur_result.coordinates[0], cur_result.coordinates[2]);
+                viewer.entities.add({
+                  position: Cesium.Cartesian3.fromDegrees(cur_result.coordinates[0], cur_result
+                    .coordinates[1], cur_result.coordinates[2]),
 
-                        // label: {text: s},
-                        label: {
-                            text: spotlight_data.results.id,
-                            font: "12px Helvetica",
-                            fillColor: Cesium.Color.WHITE,
-                            outlineColor: Cesium.Color.BLACK,
-                            outlineWidth: 2,
-                            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-                        },
-                        point: {
-                            pixelSize: 10,
-                            color: Cesium.Color.RED,
-                            outlineWidth: 0
-                        },
-                        path: {
-                            resolution: 1,
-                            leadTime: 0,
-                            trailTime: 5,
-                            material: new Cesium.PolylineGlowMaterialProperty({
-                                glowPower: 0.1,
-                                color: Cesium.Color.YELLOW
-                            }),
-                            width: 3
-                        },
-                    });
-                } else if (spotlight_data.alert_type == 'aoi_closed') {
-                    // GeoFence Closed
-                    // Clear all traffic
-                    viewer.dataSources.removeAll();
-                    viewer.entities.removeAll();
-                    humane.log("Airspace scanning closed", {
-                        addnCls: 'humane-flatty-info'
-                    });
+                  // label: {text: s},
+                  label: {
+                    text: spotlight_data.results.id,
+                    font: "12px Helvetica",
+                    fillColor: Cesium.Color.WHITE,
+                    outlineColor: Cesium.Color.BLACK,
+                    outlineWidth: 2,
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                  },
+                  point: {
+                    pixelSize: 10,
+                    color: Cesium.Color.RED,
+                    outlineWidth: 0
+                  },
+                  path: {
+                    resolution: 1,
+                    leadTime: 0,
+                    trailTime: 5,
+                    material: new Cesium.PolylineGlowMaterialProperty({
+                      glowPower: 0.1,
+                      color: Cesium.Color.YELLOW
+                    }),
+                    width: 3
+                  },
+                });
+              } else if (spotlight_data.alert_type == 'aoi_closed') {
+                // GeoFence Closed
+                // Clear all traffic
+                viewer.dataSources.removeAll();
+                viewer.entities.removeAll();
+                humane.log("Airspace scanning closed", {
+                  addnCls: 'humane-flatty-info'
+                });
 
-                    let spinner_cont = document.getElementById("spinner-cont");
-                    spinner_cont.classList.add("d-none");
+                let spinner_cont = document.getElementById("spinner-cont");
+                spinner_cont.classList.add("d-none");
 
-                  let manual_spotlight_controls_cont  = document.getElementById('manual_spotlight_controls');
-                  manual_spotlight_controls_cont.classList.remove('d-none');
-                    clearList();
+                let manual_spotlight_controls_cont = document.getElementById('manual_spotlight_controls');
+                manual_spotlight_controls_cont.classList.remove('d-none');
+                clearList();
 
-                }
-                else if (spotlight_data.alert_type == 'geo_fence_in_aoi') {
-                    const result_geo_json = spotlight_data.results.objects;
+              }
+              else if (spotlight_data.alert_type == 'geo_fence_in_aoi') {
+                const result_geo_json = spotlight_data.results.objects;
 
-                    for (let index = 0; index < result_geo_json.length; index++) {
-                        const geo_json_element = result_geo_json[index]['object'];
-                        const geo_fence_heights = result_geo_json[index]['fields'];
-                        var dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
-                            function (dataSource) {
-                                var p = dataSource.entities.values;
-                                for (var i = 0; i < p.length; i++) {
-                                    p[i].polygon.height = geo_fence_heights[1]; // or height property
-                                    p[i].polygon.extrudedHeight = geo_fence_heights[
-                                        0]; // or height property
-                                    p[i].polygon.outlineColor = Cesium.Color.PINK.withAlpha(0.2),
-                                        p[i].polygon.material = Cesium.Color.HOTPINK.withAlpha(0.2)
-                                }
-                                viewer.dataSources.add(dataSource);
-                            }
-                        );
+                for (let index = 0; index < result_geo_json.length; index++) {
+                  const geo_json_element = result_geo_json[index]['object'];
+                  const geo_fence_heights = result_geo_json[index]['fields'];
+                  var dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
+                    function (dataSource) {
+                      var p = dataSource.entities.values;
+                      for (var i = 0; i < p.length; i++) {
+                        p[i].polygon.height = geo_fence_heights[1]; // or height property
+                        p[i].polygon.extrudedHeight = geo_fence_heights[
+                          0]; // or height property
+                        p[i].polygon.outlineColor = Cesium.Color.PINK.withAlpha(0.2),
+                          p[i].polygon.material = Cesium.Color.HOTPINK.withAlpha(0.2)
+                      }
+                      viewer.dataSources.add(dataSource);
                     }
+                  );
                 }
-                else if (spotlight_data.alert_type == 'operational_intents_in_aoi') {
-                    const result_geo_json = spotlight_data.results.objects;
+              }
+              else if (spotlight_data.alert_type == 'operational_intents_in_aoi') {
+                const result_geo_json = spotlight_data.results.objects;
 
-                    for (let index = 0; index < result_geo_json.length; index++) {
-                        const geo_json_element = result_geo_json[index]['object'];
-                        
-                        const flight_declaration_fields = result_geo_json[index]['fields'];
-                        const heights = flight_declaration_fields.filter(item => typeof item === 'number');
-                        const minHeight = Math.min(...heights);
-                        const maxHeight = Math.max(...heights);
-                        const strings = flight_declaration_fields.filter(item => typeof item === 'string');
-                        const [id, manager, state] = strings;
-                        let dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
-                          function (dataSource) {
-                            var p = dataSource.entities.values;
-                            for (var i = 0; i < p.length; i++) {
-                              p[i].polygon.height = minHeight; // or height property
-                              p[i].polygon.extrudedHeight = maxHeight; // or height property
-                              p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
-                                p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
-                              p[i].description = `ID: ${id}<br>Manager: ${manager}<br>State: ${state}`;
-                            }
-                            viewer.dataSources.add(dataSource);
+                for (let index = 0; index < result_geo_json.length; index++) {
+                  const geo_json_element = result_geo_json[index]['object'];
 
-                          }
-                        );
+                  const flight_declaration_fields = result_geo_json[index]['fields'];
+                  const heights = flight_declaration_fields.filter(item => typeof item === 'number');
+                  const minHeight = Math.min(...heights);
+                  const maxHeight = Math.max(...heights);
+                  const strings = flight_declaration_fields.filter(item => typeof item === 'string');
+                  const [id, manager, state] = strings;
+                  let dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
+                    function (dataSource) {
+                      var p = dataSource.entities.values;
+                      for (var i = 0; i < p.length; i++) {
+                        p[i].polygon.height = minHeight; // or height property
+                        p[i].polygon.extrudedHeight = maxHeight; // or height property
+                        p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
+                          p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
+                        p[i].description = `ID: ${id}<br>Manager: ${manager}<br>State: ${state}`;
+                      }
+                      viewer.dataSources.add(dataSource);
 
                     }
-                }  
-                else if (spotlight_data.alert_type == 'observation_crosses_geofence') {
-                    let d = new Date();
-                    addToList('<span class="date">' + d.toLocaleTimeString() + '</span> ' + spotlight_data.results);
+                  );
 
                 }
+              }
+              else if (spotlight_data.alert_type == 'observation_crosses_geofence') {
+                let d = new Date();
+                addToList('<span class="date">' + d.toLocaleTimeString() + '</span> ' + spotlight_data.results);
+
+              }
             }
-        });
+          });
         }
-        else{
-            let center =get_globe_center();
-            const lat_cont = document.getElementById('spotlight_latitude');
-            const lng_cont = document.getElementById('spotlight_longitude');
-            lat_cont.innerText = parseFloat(center.lat).toFixed(2);
-            lng_cont.innerText =  parseFloat(center.lng).toFixed(2);
+        else {
+          let center = get_globe_center();
+          const lat_cont = document.getElementById('spotlight_latitude');
+          const lng_cont = document.getElementById('spotlight_longitude');
+          lat_cont.innerText = parseFloat(center.lat).toFixed(2);
+          lng_cont.innerText = parseFloat(center.lng).toFixed(2);
 
         }
-    </script>
-  </body>
+      </script>
+</body>
+
 </html>

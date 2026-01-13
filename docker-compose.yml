@@ -28,6 +28,8 @@ services:
     build: .
     image: openskiessh/flight-spotlight
     container_name: flight-spotlight
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redis-spotlight
       - tile38

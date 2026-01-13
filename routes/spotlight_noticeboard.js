@@ -24,8 +24,8 @@ let passport_helper = require('./passport_helper');
 
 const { sendStdMsg } = require('../util/io');
 
-const { requiresAuth } = require('express-openid-connect');
-const { createNewPollBlenderProcess, createNewADSBFeedProcess, createNewBlenderDSSSubscriptionProcess, createNewGeofenceProcess,getNewNearbyOperationalIntentsProcess } = require("../queues/live-blender-queue");
+const { requiresAuth } = require('../util/requiresAuth');
+const { createNewPollBlenderProcess, createNewADSBFeedProcess, createNewBlenderDSSSubscriptionProcess, createNewGeofenceProcess, getNewNearbyOperationalIntentsProcess } = require("../queues/live-blender-queue");
 
 
 const {

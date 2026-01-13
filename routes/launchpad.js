@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 
-const { requiresAuth } = require('express-openid-connect');
+const { requiresAuth } = require('../util/requiresAuth');
 const asyncMiddleware = require('../util/asyncMiddleware');
 const {
   DateTime
@@ -173,7 +173,7 @@ router.get('/launchpad/operation-status/:uuid', asyncMiddleware(async (req, res,
   }
   const operationUUID = req.params.uuid;
 
-  
+
   const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationUUID);
 
   if (!isUUID) {

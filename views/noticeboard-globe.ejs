@@ -20,6 +20,7 @@
         @import url(/assets/Build/Cesium/Widgets/widgets.css);
     </style>
 </head>
+
 <body>
     <%- include('navigation') -%>
         <div class="container-fluid information">
@@ -28,9 +29,9 @@
                 <div class="col-sm-4 col-md-4 main">
                     <div class="row">
                         <div class="pt-1 pb-1">
-                        <h6><select id="query_date" class="form-control" name="query_date">
-                                <option value="" disabled selected>Select a date..</option>
-                            </select></h6>
+                            <h6><select id="query_date" class="form-control" name="query_date">
+                                    <option value="" disabled selected>Select a date..</option>
+                                </select></h6>
                         </div>
                         <div class="schedule-button pt-1 pb-1">
                             <button type="button" onclick="get_flight_declarations()" id="search-timeframe"
@@ -38,61 +39,63 @@
                         </div>
                     </div>
 
-                        <div class="d-none loading-spinner" id="spinner-cont"><br>
-                            <img src="/assets/img/spinner.gif" height="30px">
-                        </div>
-                        <p>&nbsp;</p>
-                        <div class="d-none" id="flight-declarations">
-                            <button id="show-flight-declarations" type="button" class="btn btn-link">Get Flight
-                                Declarations</button>
-                        </div>
-                        <ul class="list-group list-group-flush">
-                            <%if (data.successful !='NA' ) { %>
-                                <% const declarations_len=data.results.length; var op_types={1:'VLOS', 2: 'BVLOS', '3':'CREWED' }; var
-                                    op_state={'0':'Accepted', '1' : 'Activated' , '2' : 'Contingent' , '3'
-                                    : 'Nonconforming' , '4' : 'Completed' }; if (declarations_len !==0) { for (var j=0;
-                                    j < declarations_len; j++ ) { var cur_declaration=data.results[j]; %>
-                                    <li class="list-group-item">
-                                        <h6><a href="#"
-                                                onclick="highlight_flight_declaration('<%- cur_declaration.id %>')">
-                                                <%= cur_declaration.originating_party %>
-                                            </a>&nbsp;<small class="text-muted">
-                                                <%= op_types[cur_declaration.type_of_operation] %>
-                                                <%if (userProfile.role=='operator' ) { %>
-                                                    <%if (cur_declaration.is_approved =='1'){ %>&nbsp;&nbsp;<i class="bi bi-check-circle"></i> <% } else {%>&nbsp;&nbsp;<i class="bi bi-x-square"></i><%}%>
-                                                <% } %>
-                                            </small></h6>
-
-                                        <%if (userProfile.role=='authority' ) { %>
-                                            <div class="form-check form-switch"><input class="form-check-input"
-                                                    type="checkbox" onchange="set_approval('<%- cur_declaration.id %>')"
-                                                    id="<%- cur_declaration.id %>" <% if (cur_declaration.is_approved)
-                                                    {%>checked <%}%>)>
-                                                    <label class="form-check-label" for="' + flight_declaration_details['id'] +
-                                                    '"> Flight Approved?</label>
-                                            </div>
-                                        <% } %>
-                                    </li>
-                                    <% } } else { %>
-                                        <p>No flight declarations found, please select a broader timeframe.</p>
-                                        <% } } else { %>
-                                            <p>No flight declarations found, please select a timeframe.</p>
-                                            <% } %>
-                        </ul>
-                        <br>
+                    <div class="d-none loading-spinner" id="spinner-cont"><br>
+                        <img src="/assets/img/spinner.gif" height="30px">
+                    </div>
+                    <p>&nbsp;</p>
+                    <div class="d-none" id="flight-declarations">
+                        <button id="show-flight-declarations" type="button" class="btn btn-link">Get Flight
+                            Declarations</button>
+                    </div>
+                    <ul class="list-group list-group-flush">
                         <%if (data.successful !='NA' ) { %>
-                            <p>Showing page <%= data.page %> of <%= data.pages%>. <a href="/noticeboard">See as a <i
-                                                class='bi bi-table'></i> table</a></p>
-                            <% if (data.links) { const pagination_links=data.links; %>
-                                <ul class="pagination">
-                                    <% if (data.links.previous) { const previous_page=data.page -1; let
-                                        previous_detail=pagination_links.previous; const previous_url=new
-                                        URL(previous_detail); const urlParams=new URLSearchParams(previous_url.search);
-                                        const s_date=urlParams.get('start_date'); const
-                                        e_date=urlParams.get('end_date'); const page=urlParams.get('page'); %>
+                            <% const declarations_len=data.results.length; var op_types={1:'VLOS', 2: 'BVLOS' , '3'
+                                :'CREWED' }; var op_state={'0':'Accepted', '1' : 'Activated' , '2' : 'Contingent' , '3'
+                                : 'Nonconforming' , '4' : 'Completed' }; if (declarations_len !==0) { for (var j=0; j <
+                                declarations_len; j++ ) { var cur_declaration=data.results[j]; %>
+                                <li class="list-group-item">
+                                    <h6><a href="#" onclick="highlight_flight_declaration('<%- cur_declaration.id %>')">
+                                            <%= cur_declaration.originating_party %>
+                                        </a>&nbsp;<small class="text-muted">
+                                            <%= op_types[cur_declaration.type_of_operation] %>
+                                                <%if (userProfile.role=='operator' ) { %>
+                                                    <%if (cur_declaration.is_approved=='1' ){ %>&nbsp;&nbsp;<i
+                                                            class="bi bi-check-circle"></i>
+                                                        <% } else {%>&nbsp;&nbsp;<i class="bi bi-x-square"></i>
+                                                            <%}%>
+                                                                <% } %>
+                                        </small></h6>
 
-                                        <li class="page-item"><a class="page-link"
-                                                href='<%= "/noticeboard?start_date=" + s_date +"&end_date=" + e_date + "&page=" + previous_page %>''>Previous</a></li>
+                                    <%if (userProfile.role=='authority' ) { %>
+                                        <div class="form-check form-switch"><input class="form-check-input"
+                                                type="checkbox" onchange="set_approval('<%- cur_declaration.id %>')"
+                                                id="<%- cur_declaration.id %>" <% if (cur_declaration.is_approved)
+                                                {%>checked <%}%>)>
+                                                <label class="form-check-label" for="' + flight_declaration_details['id'] +
+                                                    '"> Flight Approved?</label>
+                                        </div>
+                                        <% } %>
+                                </li>
+                                <% } } else { %>
+                                    <p>No flight declarations found, please select a broader timeframe.</p>
+                                    <% } } else { %>
+                                        <p>No flight declarations found, please select a timeframe.</p>
+                                        <% } %>
+                    </ul>
+                    <br>
+                    <%if (data.successful !='NA' ) { %>
+                        <p>Showing page <%= data.page %> of <%= data.pages%>. <a href="/noticeboard">See as a <i
+                                            class='bi bi-table'></i> table</a></p>
+                        <% if (data.links) { const pagination_links=data.links; %>
+                            <ul class="pagination">
+                                <% if (data.links.previous) { const previous_page=data.page -1; let
+                                    previous_detail=pagination_links.previous; const previous_url=new
+                                    URL(previous_detail); const urlParams=new URLSearchParams(previous_url.search);
+                                    const s_date=urlParams.get('start_date'); const e_date=urlParams.get('end_date');
+                                    const page=urlParams.get('page'); %>
+
+                                    <li class="page-item"><a class="page-link"
+                                            href='<%= "/noticeboard?start_date=" + s_date +"&end_date=" + e_date + "&page=" + previous_page %>''>Previous</a></li>
                                     <% } %>
                                        
                                     <% if (data.links.next) { 
@@ -100,11 +103,11 @@
                                         let next_detail = pagination_links.next;      
                                         const next_url = new URL(next_detail);
                                         const urlParams = new URLSearchParams(next_url.search);
-                                        const s_date = urlParams.get('start_date'); const
-                                                e_date=urlParams.get('end_date'); const page=urlParams.get('page'); %>
+                                        const s_date = urlParams.get(' start_date'); const
+                                            e_date=urlParams.get('end_date'); const page=urlParams.get('page'); %>
 
-                                        <li class="page-item"><a class="page-link"
-                                                href='<%= "/noticeboard?start_date=" + s_date +"&end_date=" + e_date + "&page=" + next_page %>''>Next</a></li>
+                                    <li class="page-item"><a class="page-link"
+                                            href='<%= "/noticeboard?start_date=" + s_date +"&end_date=" + e_date + "&page=" + next_page %>''>Next</a></li>
                                     <% } %>
                                 </ul>                            
                             <% } } %>
@@ -114,198 +117,195 @@
                 <div id="cesiumContainer"></div>
             </div>
         </div>
-        <%- include('flight-timeline') -%>
-        </div>
-    <%- include('footer') -%>
-    <script type="text/javascript" src="/assets/js/jquery/jquery.min.js"></script>
-    <script type="text/javascript" src="/assets/js/humane/humane.min.js"></script>
-    <script type="text/javascript" src="/assets/js/bootstrap/bootstrap.bundle.min.js"></script>
-    <script type="text/javascript" src="/assets/js/vis-timeline/vis-timeline-graph2d.min.js"></script>
-    <script type="text/javascript" src="/assets/js/vis-timeline/timeline-render.js"></script>
-
-    
-    <script type="text/javascript">
-        var path_done;
-        var all_flight_declarations =  <%- JSON.stringify(data.results) %>;
-      
-
-        function end_date_update(e) {
-                
-                const selected_date_y = new Date(e.target.value);
-                const selected_date_t = new Date(e.target.value);
-                const yesterdays_date = selected_date_y.setDate(selected_date_y.getDate() - 1);
-                const tomorrows_date = selected_date_t.setDate(selected_date_t.getDate() + 1);               
-
-                const tmp_y = new Date(yesterdays_date);
-                const tmp_t = new Date(tomorrows_date);
-                
-                start_date = tmp_y.toISOString().split('T')[0];
-                end_date =  tmp_t.toISOString().split('T')[0];
-
-            }
+        <%- include(' flight-timeline') -%>
+                </div>
+                <%- include('footer') -%>
+                    <script type="text/javascript" src="/assets/js/jquery/jquery.min.js"></script>
+                    <script type="text/javascript" src="/assets/js/humane/humane.min.js"></script>
+                    <script type="text/javascript" src="/assets/js/bootstrap/bootstrap.bundle.min.js"></script>
+                    <script type="text/javascript" src="/assets/js/vis-timeline/vis-timeline-graph2d.min.js"></script>
+                    <script type="text/javascript" src="/assets/js/vis-timeline/timeline-render.js"></script>
 
 
-        let dateRange = document.getElementById('query_date'),
-        monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug","Sep", "Oct", "Nov", "Dec"];
-        dateRange.addEventListener("change", end_date_update);
-        
-        for (var day = 0; day < 7; day++) {
-            var date = new Date();
-            date.setDate(date.getDate() + day);
-            var dateAsString = [date.getDate(), monthNames[date.getMonth()],
-            date.getFullYear()
-            ].join(' ');
-            if (day == 0) {
-            dateRange.options[dateRange.options.length] = new
-                Option(dateAsString, date.toISOString(), false, false);
-            } else {
-            dateRange.options[dateRange.options.length] = new
-                Option(dateAsString, date.toISOString());
-            }
-        }
-
-        const map_querystring = window.location.search;
-        const date_params = new URLSearchParams(map_querystring);
-
-        let start_date = date_params.get('start_date');
-        let end_date = date_params.get('end_date');
-
-        if (!start_date) {
-            start_date = 0;
-        }
-
-        if (!end_date) {
-            end_date = 0;
-        }
+                    <script type="text/javascript">
+                        var path_done;
+                        var all_flight_declarations =  <%- JSON.stringify(data.results) %>;
 
 
-        // var data = <% JSON.stringify(data) %>;
-        $('#datepicker').on('changeDate', (event) => {
-            // save checkin date
-            let d = event.date;
-            var datestring = d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + (d
-                .getDate())).slice(-2);
-            if (event.target.id == 'start') {
-                start_date = datestring;
-            } else if (event.target.id == 'end') {
-                end_date = datestring;
-            }
-        });
+                        function end_date_update(e) {
 
-        const s_parse = Date.parse(start_date);
-        const timeline_start = new Date(s_parse);
-        const user_name = '<%= userProfile.email %>';
-        
-        
-        const mapbox = new Cesium.ImageryLayer.fromProviderAsync(
-          new Cesium.MapboxImageryProvider({
-              mapId: 'mapbox.satellite',
-              accessToken: '<%= mapbox_key %>'
-          })
-        );
-        
-        var viewer = new Cesium.Viewer('cesiumContainer', {
-            "geocoder": false,
-            "homeButton": false,
-            "baseLayerPicker": false,
-            "infoBox": false,
-            "sceneModePicker": false,
-            "timeline": false,
-            "animation": false,
-            "selectionIndicator": false,
-            "fullscreenButton": false,
-            "navigationHelpButton": false,
-            
-        });
-        //Set bounds of our simulation time
-        // var start = Cesium.JulianDate.fromDate(new Date(2015, 2, 25, 16));
-        // var stop = Cesium.JulianDate.addSeconds(start, 360, new Cesium.JulianDate());
+                            const selected_date_y = new Date(e.target.value);
+                            const selected_date_t = new Date(e.target.value);
+                            const yesterdays_date = selected_date_y.setDate(selected_date_y.getDate() - 1);
+                            const tomorrows_date = selected_date_t.setDate(selected_date_t.getDate() + 1);
 
-        viewer.imageryLayers.add(mapbox);
-        let scene = viewer.scene;
-        let camera = viewer.camera;
-        var cameralat;
-        var cameralng;
+                            const tmp_y = new Date(yesterdays_date);
+                            const tmp_t = new Date(tomorrows_date);
 
+                            start_date = tmp_y.toISOString().split('T')[0];
+                            end_date = tmp_t.toISOString().split('T')[0];
 
-        function get_flight_declarations() {
-            let url = '?start_date=' + start_date + '&end_date=' + end_date;
-            window.location.href = url;
-        }
-
-
-        function highlight_flight_declaration(declaration_id) {
-            for (let index = 0; index < all_flight_declarations.length; index++) {
-                const cur_declaration = all_flight_declarations[index];
-                if (cur_declaration['id'] == declaration_id) {
-                    // const current_declaration = JSON.parse(raw_declarations[fd]);
-                    const fd_geo_json = cur_declaration['flight_declaration_raw_geojson'];
-                    viewer.dataSources.removeAll();
-                    var dataSource = Cesium.GeoJsonDataSource.load(fd_geo_json).then(
-                        function (dataSource) {
-
-                            // var p = dataSource.entities.values;
-                            // for (var i = 0; i < p.length; i++) {
-                            //     p[i].polygon.extrudedHeight = 15; // or height property
-                            // }
-                            viewer.dataSources.add(dataSource);
-                            path_done = dataSource;
-                            viewer.zoomTo(dataSource);
                         }
-                    );
 
-                }
 
-            }
-        }
+                        let dateRange = document.getElementById('query_date'),
+                            monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                        dateRange.addEventListener("change", end_date_update);
 
-        function set_approval(flight_declaration_id) {
-            let is_approved = 0;
+                        for (var day = 0; day < 7; day++) {
+                            var date = new Date();
+                            date.setDate(date.getDate() + day);
+                            var dateAsString = [date.getDate(), monthNames[date.getMonth()],
+                            date.getFullYear()
+                            ].join(' ');
+                            if (day == 0) {
+                                dateRange.options[dateRange.options.length] = new
+                                    Option(dateAsString, date.toISOString(), false, false);
+                            } else {
+                                dateRange.options[dateRange.options.length] = new
+                                    Option(dateAsString, date.toISOString());
+                            }
+                        }
 
-            if (document.getElementById(flight_declaration_id).checked) {
-                is_approved = 1;
-            }
-            let data = {
-                'approve_reject': is_approved,
-                'approved_by': user_name
-            }
-            var promise = $.ajax({
-                url: '/set_flight_approval/' + flight_declaration_id,
-                type: 'POST',
-                data: JSON.stringify(data),
-                contentType: 'application/json'
+                        const map_querystring = window.location.search;
+                        const date_params = new URLSearchParams(map_querystring);
 
-            });
-            promise.done(response => {
-                humane.log("Submitted Approval / Review", {
-                    addnCls: 'humane-flatty-success'
-                });
+                        let start_date = date_params.get('start_date');
+                        let end_date = date_params.get('end_date');
 
-            });
-            promise.fail(error => {
+                        if (!start_date) {
+                            start_date = 0;
+                        }
 
-                if (error.status == 404) {
-                    humane.log("Error in updating declaration", {
-                        addnCls: 'humane-flatty-error'
-                    });
-                } else if (error.status == 422) {
-                    humane.log("Error in updating declaration", {
-                        addnCls: 'humane-flatty-error'
-                    });
-                }
-                console.log(error);
-            });
-        }
+                        if (!end_date) {
+                            end_date = 0;
+                        }
 
-        
-    /// Timeline specific 
-    if (start_date == 0 || end_date == 0) { } else {
-        if (all_flight_declarations.length > 0){
-            const timeline_data = {'flight_declarations':all_flight_declarations, 'view_type':'globe'};
-        render_timeline(timeline_data);
-        }
-    }
-    </script>
+
+                        // var data = <% JSON.stringify(data) %>;
+                        $('#datepicker').on('changeDate', (event) => {
+                            // save checkin date
+                            let d = event.date;
+                            var datestring = d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + (d
+                                .getDate())).slice(-2);
+                            if (event.target.id == 'start') {
+                                start_date = datestring;
+                            } else if (event.target.id == 'end') {
+                                end_date = datestring;
+                            }
+                        });
+
+                        const s_parse = Date.parse(start_date);
+                        const timeline_start = new Date(s_parse);
+                        const user_name = '<%= userProfile.email %>';
+
+
+                        // Use OpenStreetMap (free, no API key needed)
+                        const osmImagery = new Cesium.OpenStreetMapImageryProvider({
+                            url: 'https://tile.openstreetmap.org/'
+                        });
+
+                        var viewer = new Cesium.Viewer('cesiumContainer', {
+                            "geocoder": false,
+                            "homeButton": false,
+                            "baseLayerPicker": false,
+                            "infoBox": false,
+                            "sceneModePicker": false,
+                            "timeline": false,
+                            "animation": false,
+                            "selectionIndicator": false,
+                            "fullscreenButton": false,
+                            "navigationHelpButton": false,
+                            imageryProvider: osmImagery
+                        });
+                        //Set bounds of our simulation time
+                        // var start = Cesium.JulianDate.fromDate(new Date(2015, 2, 25, 16));
+                        // var stop = Cesium.JulianDate.addSeconds(start, 360, new Cesium.JulianDate());
+
+                        let scene = viewer.scene;
+                        let camera = viewer.camera;
+                        var cameralat;
+                        var cameralng;
+
+
+                        function get_flight_declarations() {
+                            let url = '?start_date=' + start_date + '&end_date=' + end_date;
+                            window.location.href = url;
+                        }
+
+
+                        function highlight_flight_declaration(declaration_id) {
+                            for (let index = 0; index < all_flight_declarations.length; index++) {
+                                const cur_declaration = all_flight_declarations[index];
+                                if (cur_declaration['id'] == declaration_id) {
+                                    // const current_declaration = JSON.parse(raw_declarations[fd]);
+                                    const fd_geo_json = cur_declaration['flight_declaration_raw_geojson'];
+                                    viewer.dataSources.removeAll();
+                                    var dataSource = Cesium.GeoJsonDataSource.load(fd_geo_json).then(
+                                        function (dataSource) {
+
+                                            // var p = dataSource.entities.values;
+                                            // for (var i = 0; i < p.length; i++) {
+                                            //     p[i].polygon.extrudedHeight = 15; // or height property
+                                            // }
+                                            viewer.dataSources.add(dataSource);
+                                            path_done = dataSource;
+                                            viewer.zoomTo(dataSource);
+                                        }
+                                    );
+
+                                }
+
+                            }
+                        }
+
+                        function set_approval(flight_declaration_id) {
+                            let is_approved = 0;
+
+                            if (document.getElementById(flight_declaration_id).checked) {
+                                is_approved = 1;
+                            }
+                            let data = {
+                                'approve_reject': is_approved,
+                                'approved_by': user_name
+                            }
+                            var promise = $.ajax({
+                                url: '/set_flight_approval/' + flight_declaration_id,
+                                type: 'POST',
+                                data: JSON.stringify(data),
+                                contentType: 'application/json'
+
+                            });
+                            promise.done(response => {
+                                humane.log("Submitted Approval / Review", {
+                                    addnCls: 'humane-flatty-success'
+                                });
+
+                            });
+                            promise.fail(error => {
+
+                                if (error.status == 404) {
+                                    humane.log("Error in updating declaration", {
+                                        addnCls: 'humane-flatty-error'
+                                    });
+                                } else if (error.status == 422) {
+                                    humane.log("Error in updating declaration", {
+                                        addnCls: 'humane-flatty-error'
+                                    });
+                                }
+                                console.log(error);
+                            });
+                        }
+
+
+                        /// Timeline specific 
+                        if (start_date == 0 || end_date == 0) { } else {
+                            if (all_flight_declarations.length > 0) {
+                                const timeline_data = { 'flight_declarations': all_flight_declarations, 'view_type': 'globe' };
+                                render_timeline(timeline_data);
+                            }
+                        }
+                    </script>
 </body>
 
 </html>
