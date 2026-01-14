@@ -26,8 +26,9 @@ async function setObservationsLocally(observations) {
 
         try {
             // Tile38 set: key, id, [lon, lat, altitude], fields, options
-            await tile38_client.set('observation', icao_address, [lon_dd, lat_dd, altitude_mm], fields, { expire: 60 });
-            console.log(`[Tile38] Set observation for ${icao_address} at [${lon_dd}, ${lat_dd}]`);
+            // NOTE: Blender API returns lon_dd/lat_dd with SWAPPED values, so we swap here
+            await tile38_client.set('observation', icao_address, [lat_dd, lon_dd, altitude_mm], fields, { expire: 60 });
+            console.log(`[Tile38] Set observation for ${icao_address} at [${lat_dd}, ${lon_dd}] (lon,lat)`);
         } catch (err) {
             console.error("Error setting observation in Tile38:", err);
         }
