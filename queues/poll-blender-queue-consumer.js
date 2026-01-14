@@ -14,28 +14,31 @@ let passport_helper = require('../routes/passport_helper');
 
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
-function setObservationsLocally(observations) {
+async function setObservationsLocally(observations) {
     for (const current_observation of observations) {
         const { lon_dd, lat_dd, icao_address, altitude_mm, source_type, traffic_source, metadata } = current_observation;
 
-        metadata.source_type = source_type;
-        metadata.traffic_source = traffic_source;
-        const observationKey = uuidv4();
+        const fields = {
+            source_type: source_type || 0,
+            traffic_source: traffic_source || 0,
+            metadata: metadata ? JSON.stringify(metadata) : '{}'
+        };
+
         try {
-            tile38_client.set('observation', icao_address, [lon_dd, lat_dd, altitude_mm], observationKey, { expire: 60 });
+            // Tile38 set: key, id, [lon, lat, altitude], fields, options
+            await tile38_client.set('observation', icao_address, [lon_dd, lat_dd, altitude_mm], fields, { expire: 60 });
+            console.log(`[Tile38] Set observation for ${icao_address} at [${lon_dd}, ${lat_dd}]`);
         } catch (err) {
-            console.log("Error " + err);
+            console.error("Error setting observation in Tile38:", err);
         }
 
-        const metadata_key = `${observationKey}-metadata`;
-        (async () => {
-            try {
-                await redis_client.set(metadata_key, JSON.stringify(metadata));
-                await redis_client.expire(metadata_key, 60);
-            } catch (err) {
-                console.log("Error setting metadata: " + err);
-            }
-        })();
+        const metadata_key = `${icao_address}-metadata`;
+        try {
+            await redis_client.set(metadata_key, JSON.stringify(metadata || {}));
+            await redis_client.expire(metadata_key, 60);
+        } catch (err) {
+            console.error("Error setting metadata in Redis:", err);
+        }
     }
 }
 
@@ -94,7 +97,7 @@ const pollBlenderProcess = async (job) => {
             const timestamp = new Date().toISOString();
             console.log(`[${timestamp}] Processing ${obs_len} observations..`);
             if (obs_len > 0) {
-                setObservationsLocally(observations);
+                await setObservationsLocally(observations);
             }
         } catch (blender_error) {
             console.log("Error in retrieving data from Blender");
