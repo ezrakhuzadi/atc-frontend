@@ -58,13 +58,19 @@ const pollBlenderProcess = async (job) => {
     });
     let session_id = uuidv4();
 
+    // Debug: log the viewport bounds being used for geofence
+    console.log(`[Geofence] Setting up fence with bounds: [${viewport[0]}, ${viewport[1]}, ${viewport[2]}, ${viewport[3]}]`);
+    console.log(`[Geofence] Bounds interpretation: minLat=${viewport[0]}, minLon=${viewport[1]}, maxLat=${viewport[2]}, maxLon=${viewport[3]}`);
 
-    const aoi_query = tile38_client.intersectsQuery('observation').bounds(viewport[0], viewport[1], viewport[2], viewport[3]).detect('inside');
+    // Tile38 bounds expects (minLat, minLon, maxLat, maxLon)
+    // detect: enter,inside,cross to catch all movement events
+    const aoi_query = tile38_client.intersectsQuery('observation').bounds(viewport[0], viewport[1], viewport[2], viewport[3]).detect('enter,inside,cross');
 
     const flight_aoi_fence = aoi_query.executeFence((err, results) => {
         if (err) {
-            console.error("something went wrong! " + err);
+            console.error("[Geofence] ERROR: " + err);
         } else {
+            console.log(`[Geofence] EVENT RECEIVED: ${JSON.stringify(results)}`);
             sendStdMsg(room, {
                 'type': 'message',
                 "alert_type": "observation_in_aoi",

@@ -44,21 +44,22 @@
               <div class="information">
                 <div>
                   <h6>
-                    Select Spotlight
+                    Flight Spotlight
                     <small id="lat_lng" class="text-muted">Latitude: <span id="spotlight_latitude"></span> Longitude:
                       <span id="spotlight_longitude"></span></small>
                   </h6>
                 </div>
-                <div id="manual_spotlight_controls">
+                <!-- Manual Controls Hidden by Default for Better UX -->
+                <div id="manual_spotlight_controls" class="d-none">
                   <button onclick="stream_flights()" class="button" id="retrive_flights" type="submit">
-                    Stream flights</button><br />
-                  <small class="text-muted">Zoom and pan globe with your mouse to your area of interest and
-                    click on stream flights</small>
+                    Monitor This Area</button><br />
+                  <small class="text-muted">Pan to interest area -> Click to monitor.</small>
                 </div>
 
                 <div class="d-none loading-spinner" id="spinner-cont">
                   <br />
                   <img src="/assets/img/spinner.gif" height="30px" />
+                  <small class="text-muted"> Scanning airspace...</small>
                 </div>
                 <br>
                 <p id="clicked-entity-description"></p>
@@ -118,7 +119,6 @@
         });
 
         // Use UrlTemplateImageryProvider (XYZ tiles) for maximum stability
-        // This bypasses ArcGisMapServer metadata requests which were crashing
         try {
           const esriImagery = new Cesium.UrlTemplateImageryProvider({
             url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -135,51 +135,13 @@
           destination: Cesium.Cartesian3.fromDegrees(-117.8265, 33.6846, 5000) // 5km up
         });
 
-        // --- DEBUG PANEL ---
-        const debugPanel = document.createElement('div');
-        debugPanel.style.position = 'absolute';
-        debugPanel.style.top = '10px';
-        debugPanel.style.left = '10px';
-        debugPanel.style.backgroundColor = 'rgba(0,0,0,0.7)';
-        debugPanel.style.color = 'lime';
-        debugPanel.style.fontFamily = 'monospace';
-        debugPanel.style.padding = '10px';
-        debugPanel.style.zIndex = '9999';
-        debugPanel.style.maxWidth = '400px';
-        debugPanel.innerHTML = '<strong>Debug Console</strong><br>';
-        document.body.appendChild(debugPanel);
-
+        // --- DEBUGGING ---
         function logDebug(msg) {
-          const time = new Date().toLocaleTimeString();
-          debugPanel.innerHTML += `[${time}] ${msg}<br>`;
-          console.log(msg);
+          console.log("[Spotlight Debug] " + msg);
         }
 
         logDebug("Viewer initialized.");
         logDebug("Added Esri XYZ Imagery.");
-
-        setTimeout(() => {
-          const imageryLayer = viewer.imageryLayers.get(0);
-          if (imageryLayer) {
-            logDebug("Base layer found (Index 0).");
-            // Monitor tile load events if possible, or just check provider status
-            if (imageryLayer.imageryProvider.ready) {
-              logDebug("Provider ready: true");
-            } else {
-              logDebug("Provider ready: false (loading...)");
-            }
-          } else {
-            logDebug("ERROR: No base imagery layer found!");
-          }
-        }, 1000); // Check after 1s for better async visibility
-
-        viewer.scene.globe.tileLoadProgressEvent.addEventListener(function (curr) {
-          if (curr == 0) {
-            // logDebug("All tiles loaded.");
-          } else if (curr % 5 == 0) {
-            // logDebug("Loading tiles... remaining: " + curr);
-          }
-        });
 
         viewer.scene.renderError.addEventListener(function (scene, error) {
           logDebug("RENDER ERROR: " + error);
@@ -208,6 +170,9 @@
 
         camera.moveStart.addEventListener(function () {
           // the camera started to move
+          // Show manual controls if user moves camera significantly?
+          // For now keep simple.
+          document.getElementById('manual_spotlight_controls').classList.remove('d-none');
         });
         camera.moveEnd.addEventListener(function () {
           // the camera stopped moving
@@ -255,13 +220,15 @@
         let lat = date_params.get('lat');
         let lng = date_params.get('lng');
 
-        if (!lat) {
-          lat = 0;
+        // AUTO-START LOGIC: If no params, redirect to default Irvine location
+        if (!lat && !lng) {
+          console.log("No params detected, auto-starting Irvine Spotlight...");
+          // Use replace to avoid history pollution
+          window.location.replace('?lat=33.6846&lng=-117.8265');
         }
 
-        if (!lng) {
-          lng = 0;
-        }
+        if (!lat) lat = 0;
+        if (!lng) lng = 0;
 
         // Robust data loading: Parse from the JSON script block explicitly
         let view_data = {};
@@ -277,7 +244,8 @@
         if (lat !== 0 && lng !== 0) {
 
           let manual_spotlight_controls_cont = document.getElementById('manual_spotlight_controls');
-          manual_spotlight_controls_cont.classList.add('d-none');
+          manual_spotlight_controls_cont.classList.add('d-none'); // Hide manual controls in active mode
+
           const lat_cont = document.getElementById('spotlight_latitude');
           const lng_cont = document.getElementById('spotlight_longitude');
           lat_cont.innerText = parseFloat(lat).toFixed(2);
@@ -314,6 +282,7 @@
             console.log('Welcome message:', msg);
           });
           socket.on('connect', function () {
+            console.log('[DEBUG] Socket connected, joining room:', email);
             socket.emit('room', email);
           });
           socket.on('connect_timeout', function () {
@@ -321,42 +290,49 @@
 
           });
           socket.on('message', function (spotlight_data) {
+            console.log('[DEBUG] Received socket message:', spotlight_data.alert_type);
             if (spotlight_data.type == 'message') {
               if (spotlight_data.alert_type == 'observation_in_aoi') {
+                console.log('[DEBUG] Processing observation_in_aoi event');
                 const cur_result = spotlight_data.results.object;
-                // console.log(Math.floor(Date.now() / 1000) +":  " + cur_result.coordinates[1], cur_result.coordinates[0], cur_result.coordinates[2]);
-                viewer.entities.add({
-                  position: Cesium.Cartesian3.fromDegrees(cur_result.coordinates[0], cur_result
-                    .coordinates[1], cur_result.coordinates[2]),
+                // Convert altitude from millimeters to meters for Cesium
+                const altitude_m = cur_result.coordinates[2] / 1000;
+                console.log('[DEBUG] Coordinates:', cur_result.coordinates, '-> altitude (m):', altitude_m);
+                try {
+                  viewer.entities.add({
+                    position: Cesium.Cartesian3.fromDegrees(cur_result.coordinates[0], cur_result
+                      .coordinates[1], altitude_m),
 
-                  // label: {text: s},
-                  label: {
-                    text: spotlight_data.results.id,
-                    font: "12px Helvetica",
-                    fillColor: Cesium.Color.WHITE,
-                    outlineColor: Cesium.Color.BLACK,
-                    outlineWidth: 2,
-                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-                  },
-                  point: {
-                    pixelSize: 10,
-                    color: Cesium.Color.RED,
-                    outlineWidth: 0
-                  },
-                  path: {
-                    resolution: 1,
-                    leadTime: 0,
-                    trailTime: 5,
-                    material: new Cesium.PolylineGlowMaterialProperty({
-                      glowPower: 0.1,
-                      color: Cesium.Color.YELLOW
-                    }),
-                    width: 3
-                  },
-                });
+                    label: {
+                      text: spotlight_data.results.id,
+                      font: "12px Helvetica",
+                      fillColor: Cesium.Color.WHITE,
+                      outlineColor: Cesium.Color.BLACK,
+                      outlineWidth: 2,
+                      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    },
+                    point: {
+                      pixelSize: 10,
+                      color: Cesium.Color.RED,
+                      outlineWidth: 0
+                    },
+                    path: {
+                      resolution: 1,
+                      leadTime: 0,
+                      trailTime: 5,
+                      material: new Cesium.PolylineGlowMaterialProperty({
+                        glowPower: 0.1,
+                        color: Cesium.Color.YELLOW
+                      }),
+                      width: 3
+                    },
+                  });
+                  console.log('[DEBUG] Entity added successfully, total entities:', viewer.entities.values.length);
+                } catch (e) {
+                  console.error('[DEBUG] Error adding entity:', e);
+                }
               } else if (spotlight_data.alert_type == 'aoi_closed') {
-                // GeoFence Closed
-                // Clear all traffic
+                console.log('[DEBUG] AOI closed - removing all entities');
                 viewer.dataSources.removeAll();
                 viewer.entities.removeAll();
                 humane.log("Airspace scanning closed", {
@@ -373,7 +349,7 @@
               }
               else if (spotlight_data.alert_type == 'geo_fence_in_aoi') {
                 const result_geo_json = spotlight_data.results.objects;
-
+                // ... (abbreviated for brevity, logic unchanged)
                 for (let index = 0; index < result_geo_json.length; index++) {
                   const geo_json_element = result_geo_json[index]['object'];
                   const geo_fence_heights = result_geo_json[index]['fields'];
@@ -394,10 +370,8 @@
               }
               else if (spotlight_data.alert_type == 'operational_intents_in_aoi') {
                 const result_geo_json = spotlight_data.results.objects;
-
                 for (let index = 0; index < result_geo_json.length; index++) {
                   const geo_json_element = result_geo_json[index]['object'];
-
                   const flight_declaration_fields = result_geo_json[index]['fields'];
                   const heights = flight_declaration_fields.filter(item => typeof item === 'number');
                   const minHeight = Math.min(...heights);
@@ -408,23 +382,20 @@
                     function (dataSource) {
                       var p = dataSource.entities.values;
                       for (var i = 0; i < p.length; i++) {
-                        p[i].polygon.height = minHeight; // or height property
-                        p[i].polygon.extrudedHeight = maxHeight; // or height property
+                        p[i].polygon.height = minHeight;
+                        p[i].polygon.extrudedHeight = maxHeight;
                         p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
                           p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
                         p[i].description = `ID: ${id}<br>Manager: ${manager}<br>State: ${state}`;
                       }
                       viewer.dataSources.add(dataSource);
-
                     }
                   );
-
                 }
               }
               else if (spotlight_data.alert_type == 'observation_crosses_geofence') {
                 let d = new Date();
                 addToList('<span class="date">' + d.toLocaleTimeString() + '</span> ' + spotlight_data.results);
-
               }
             }
           });
@@ -435,7 +406,6 @@
           const lng_cont = document.getElementById('spotlight_longitude');
           lat_cont.innerText = parseFloat(center.lat).toFixed(2);
           lng_cont.innerText = parseFloat(center.lng).toFixed(2);
-
         }
       </script>
 </body>
