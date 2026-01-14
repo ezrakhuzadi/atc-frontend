@@ -338,82 +338,80 @@
                 humane.log("Airspace scanning closed", {
                   addnCls: 'humane-flatty-info'
                 });
-              } else if (spotlight_data.alert_type == 'conflict_alert') {
+
+                let spinner_cont = document.getElementById("spinner-cont");
+                spinner_cont.classList.add("d-none");
+
+                let manual_spotlight_controls_cont = document.getElementById('manual_spotlight_controls');
+                manual_spotlight_controls_cont.classList.remove('d-none');
+                clearList();
+
+              }
+              else if (spotlight_data.alert_type == 'conflict_alert') {
                 // Handle conflict alerts
                 const conflict = spotlight_data.conflict;
                 console.log('[CONFLICT ALERT]', conflict);
 
                 const severity = conflict.severity;
-                const msg = `⚠️ CONFLICT: ${conflict.drone1_id} <-> ${conflict.drone2_id} (${conflict.horizontal_distance_m}m apart)`;
+                const msg = '⚠️ CONFLICT: ' + conflict.drone1_id + ' <-> ' + conflict.drone2_id + ' (' + conflict.horizontal_distance_m + 'm apart)';
 
                 if (severity === 'critical') {
                   humane.log(msg, { addnCls: 'humane-flatty-error', timeout: 5000 });
                 } else {
                   humane.log(msg, { addnCls: 'humane-flatty-warning', timeout: 3000 });
                 }
-
-                // Optionally change color of conflicting drones
-                viewer.entities.values.forEach(entity => {
-                  if (entity.label && (entity.label.text === conflict.drone1_id || entity.label.text === conflict.drone2_id)) {
-                    if (entity.point) {
-                      entity.point.color = Cesium.Color.ORANGE;
-                      entity.point.pixelSize = 15;
+              }
+              else if (spotlight_data.alert_type == 'geo_fence_in_aoi') {
+                const result_geo_json = spotlight_data.results.objects;
+                // ... (abbreviated for brevity, logic unchanged)
+                for (let index = 0; index < result_geo_json.length; index++) {
+                  const geo_json_element = result_geo_json[index]['object'];
+                  const geo_fence_heights = result_geo_json[index]['fields'];
+                  var dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
+                    function (dataSource) {
+                      var p = dataSource.entities.values;
+                      for (var i = 0; i < p.length; i++) {
+                        p[i].polygon.height = geo_fence_heights[1]; // or height property
+                        p[i].polygon.extrudedHeight = geo_fence_heights[
+                          0]; // or height property
+                        p[i].polygon.outlineColor = Cesium.Color.PINK.withAlpha(0.2),
+                          p[i].polygon.material = Cesium.Color.HOTPINK.withAlpha(0.2)
+                      }
+                      viewer.dataSources.add(dataSource);
                     }
-                  }
-                });
+                  );
+                }
+              }
+              else if (spotlight_data.alert_type == 'operational_intents_in_aoi') {
+                const result_geo_json = spotlight_data.results.objects;
+                for (let index = 0; index < result_geo_json.length; index++) {
+                  const geo_json_element = result_geo_json[index]['object'];
+                  const flight_declaration_fields = result_geo_json[index]['fields'];
+                  const heights = flight_declaration_fields.filter(item => typeof item === 'number');
+                  const minHeight = Math.min(...heights);
+                  const maxHeight = Math.max(...heights);
+                  const strings = flight_declaration_fields.filter(item => typeof item === 'string');
+                  const [id, manager, state] = strings;
+                  let dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
+                    function (dataSource) {
+                      var p = dataSource.entities.values;
+                      for (var i = 0; i < p.length; i++) {
+                        p[i].polygon.height = minHeight;
+                        p[i].polygon.extrudedHeight = maxHeight;
+                        p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
+                          p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
+                        p[i].description = `ID: ${id}<br>Manager: ${manager}<br>State: ${state}`;
+                      }
+                      viewer.dataSources.add(dataSource);
+                    }
+                  );
+                }
+              }
+              else if (spotlight_data.alert_type == 'observation_crosses_geofence') {
+                let d = new Date();
+                addToList('<span class="date">' + d.toLocaleTimeString() + '</span> ' + spotlight_data.results);
               }
             }
-            else if (spotlight_data.alert_type == 'geo_fence_in_aoi') {
-              const result_geo_json = spotlight_data.results.objects;
-              // ... (abbreviated for brevity, logic unchanged)
-              for (let index = 0; index < result_geo_json.length; index++) {
-                const geo_json_element = result_geo_json[index]['object'];
-                const geo_fence_heights = result_geo_json[index]['fields'];
-                var dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
-                  function (dataSource) {
-                    var p = dataSource.entities.values;
-                    for (var i = 0; i < p.length; i++) {
-                      p[i].polygon.height = geo_fence_heights[1]; // or height property
-                      p[i].polygon.extrudedHeight = geo_fence_heights[
-                        0]; // or height property
-                      p[i].polygon.outlineColor = Cesium.Color.PINK.withAlpha(0.2),
-                        p[i].polygon.material = Cesium.Color.HOTPINK.withAlpha(0.2)
-                    }
-                    viewer.dataSources.add(dataSource);
-                  }
-                );
-              }
-            }
-            else if (spotlight_data.alert_type == 'operational_intents_in_aoi') {
-              const result_geo_json = spotlight_data.results.objects;
-              for (let index = 0; index < result_geo_json.length; index++) {
-                const geo_json_element = result_geo_json[index]['object'];
-                const flight_declaration_fields = result_geo_json[index]['fields'];
-                const heights = flight_declaration_fields.filter(item => typeof item === 'number');
-                const minHeight = Math.min(...heights);
-                const maxHeight = Math.max(...heights);
-                const strings = flight_declaration_fields.filter(item => typeof item === 'string');
-                const [id, manager, state] = strings;
-                let dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
-                  function (dataSource) {
-                    var p = dataSource.entities.values;
-                    for (var i = 0; i < p.length; i++) {
-                      p[i].polygon.height = minHeight;
-                      p[i].polygon.extrudedHeight = maxHeight;
-                      p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
-                        p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
-                      p[i].description = `ID: ${id}<br>Manager: ${manager}<br>State: ${state}`;
-                    }
-                    viewer.dataSources.add(dataSource);
-                  }
-                );
-              }
-            }
-            else if (spotlight_data.alert_type == 'observation_crosses_geofence') {
-              let d = new Date();
-              addToList('<span class="date">' + d.toLocaleTimeString() + '</span> ' + spotlight_data.results);
-            }
-          }
           });
         }
         else {
