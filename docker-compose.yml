@@ -5,7 +5,7 @@ services:
     image: tile38/tile38
     ports:
       - "9851:9851"
-    command: ["tile38-server"]
+    command: [ "tile38-server" ]
     container_name: "tile38"
 
   redis-spotlight:
@@ -15,7 +15,7 @@ services:
       - "6379:6379"
     volumes:
       - ./config/redis.conf:/redis.conf
-    command: ["redis-server", "/redis.conf"]
+    command: [ "redis-server", "/redis.conf" ]
     container_name: "redis-spotlight"
     env_file:
       - .env
@@ -33,5 +33,7 @@ services:
     depends_on:
       - redis-spotlight
       - tile38
+    volumes:
+      - ./views:/usr/src/app/views # Mount local views for live editing
     ports:
       - "5000:5000"

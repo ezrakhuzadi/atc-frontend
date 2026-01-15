@@ -135,56 +135,79 @@
           destination: Cesium.Cartesian3.fromDegrees(-117.8265, 33.6846, 5000) // 5km up
         });
 
-        // --- DEBUG PANEL ---
-        const debugPanel = document.createElement('div');
-        debugPanel.style.position = 'absolute';
-        debugPanel.style.top = '10px';
-        debugPanel.style.left = '10px';
-        debugPanel.style.backgroundColor = 'rgba(0,0,0,0.7)';
-        debugPanel.style.color = 'lime';
-        debugPanel.style.fontFamily = 'monospace';
-        debugPanel.style.padding = '10px';
-        debugPanel.style.zIndex = '9999';
-        debugPanel.style.maxWidth = '400px';
-        debugPanel.innerHTML = '<strong>Debug Console</strong><br>';
-        document.body.appendChild(debugPanel);
+        // Track drones by ID and their position history
+        const droneEntities = new Map(); // id -> entity
+        const droneTrails = new Map(); // id -> [positions]
+        const MAX_TRAIL_POINTS = 60; // Keep last 60 positions (1 min at 1Hz)
 
-        function logDebug(msg) {
-          const time = new Date().toLocaleTimeString();
-          debugPanel.innerHTML += `[${time}] ${msg}<br>`;
-          console.log(msg);
+        function updateDronePosition(droneId, lon, lat, altMeters, heading, speed) {
+          try {
+            const validLon = Number(lon) || 0;
+            const validLat = Number(lat) || 0;
+            const validAlt = Number(altMeters) || 0;
+
+            if (validLon === 0 && validLat === 0) return; // Skip invalid 0,0 points
+
+            const position = Cesium.Cartesian3.fromDegrees(validLon, validLat, validAlt);
+
+            // Update trail history
+            if (!droneTrails.has(droneId)) {
+              droneTrails.set(droneId, []);
+            }
+            const trail = droneTrails.get(droneId);
+            trail.push(position);
+            if (trail.length > MAX_TRAIL_POINTS) {
+              trail.shift();
+            }
+
+            // Update or create drone entity
+            if (!droneEntities.has(droneId)) {
+              console.log(`Creating drone ${droneId} at ${validLat}, ${validLon}`);
+              const entity = viewer.entities.add({
+                id: droneId,
+                position: position, // Initial position
+                point: {
+                  pixelSize: 12,
+                  color: Cesium.Color.CYAN,
+                  outlineColor: Cesium.Color.WHITE,
+                  outlineWidth: 2
+                },
+                label: {
+                  text: droneId,
+                  font: '14px Helvetica',
+                  fillColor: Cesium.Color.WHITE,
+                  outlineColor: Cesium.Color.BLACK,
+                  outlineWidth: 2,
+                  style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                  verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                  pixelOffset: new Cesium.Cartesian2(0, -15)
+                },
+                description: `Speed: ${speed?.toFixed(1) || 0} m/s<br>Heading: ${heading?.toFixed(0) || 0}°`,
+                polyline: {
+                  positions: new Cesium.CallbackProperty(() => droneTrails.get(droneId), false),
+                  width: 3,
+                  material: new Cesium.PolylineGlowMaterialProperty({
+                    glowPower: 0.2,
+                    color: Cesium.Color.YELLOW
+                  })
+                }
+              });
+              droneEntities.set(droneId, entity);
+            } else {
+              const entity = droneEntities.get(droneId);
+              entity.position = position;
+              entity.description = `Speed: ${speed?.toFixed(1) || 0} m/s<br>Heading: ${heading?.toFixed(0) || 0}°<br>Altitude: ${validAlt.toFixed(1)} m`;
+            }
+          } catch (error) {
+            console.error("Error in updateDronePosition:", error);
+          }
         }
 
-        logDebug("Viewer initialized.");
-        logDebug("Added Esri XYZ Imagery.");
-
-        setTimeout(() => {
-          const imageryLayer = viewer.imageryLayers.get(0);
-          if (imageryLayer) {
-            logDebug("Base layer found (Index 0).");
-            // Monitor tile load events if possible, or just check provider status
-            if (imageryLayer.imageryProvider.ready) {
-              logDebug("Provider ready: true");
-            } else {
-              logDebug("Provider ready: false (loading...)");
-            }
-          } else {
-            logDebug("ERROR: No base imagery layer found!");
-          }
-        }, 1000); // Check after 1s for better async visibility
-
-        viewer.scene.globe.tileLoadProgressEvent.addEventListener(function (curr) {
-          if (curr == 0) {
-            // logDebug("All tiles loaded.");
-          } else if (curr % 5 == 0) {
-            // logDebug("Loading tiles... remaining: " + curr);
-          }
-        });
-
-        viewer.scene.renderError.addEventListener(function (scene, error) {
-          logDebug("RENDER ERROR: " + error);
-        });
-        // -------------------
+        function clearAllDrones() {
+          droneEntities.forEach((entity) => viewer.entities.remove(entity));
+          droneEntities.clear();
+          droneTrails.clear();
+        }
 
         // Subscribe to changes in selectedEntity
         viewer.selectedEntityChanged.addEventListener(function (entity) {
@@ -324,41 +347,18 @@
             if (spotlight_data.type == 'message') {
               if (spotlight_data.alert_type == 'observation_in_aoi') {
                 const cur_result = spotlight_data.results.object;
-                // console.log(Math.floor(Date.now() / 1000) +":  " + cur_result.coordinates[1], cur_result.coordinates[0], cur_result.coordinates[2]);
-                viewer.entities.add({
-                  position: Cesium.Cartesian3.fromDegrees(cur_result.coordinates[0], cur_result
-                    .coordinates[1], cur_result.coordinates[2] / 1000),
+                const droneId = spotlight_data.results.id;
+                const lon = cur_result.coordinates[0];
+                const lat = cur_result.coordinates[1];
+                const altMeters = cur_result.coordinates[2] / 1000; // mm to m
+                const heading = cur_result.heading || 0;
+                const speed = cur_result.speed_mps || 0;
 
-                  // label: {text: s},
-                  label: {
-                    text: spotlight_data.results.id,
-                    font: "12px Helvetica",
-                    fillColor: Cesium.Color.WHITE,
-                    outlineColor: Cesium.Color.BLACK,
-                    outlineWidth: 2,
-                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-                  },
-                  point: {
-                    pixelSize: 10,
-                    color: Cesium.Color.RED,
-                    outlineWidth: 0
-                  },
-                  path: {
-                    resolution: 1,
-                    leadTime: 0,
-                    trailTime: 5,
-                    material: new Cesium.PolylineGlowMaterialProperty({
-                      glowPower: 0.1,
-                      color: Cesium.Color.YELLOW
-                    }),
-                    width: 3
-                  },
-                });
+                updateDronePosition(droneId, lon, lat, altMeters, heading, speed);
               } else if (spotlight_data.alert_type == 'aoi_closed') {
-                // GeoFence Closed
-                // Clear all traffic
+                // GeoFence Closed - Clear all traffic
+                clearAllDrones();
                 viewer.dataSources.removeAll();
-                viewer.entities.removeAll();
                 humane.log("Airspace scanning closed", {
                   addnCls: 'humane-flatty-info'
                 });
