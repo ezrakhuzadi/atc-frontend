@@ -110,6 +110,8 @@
 
       <div class="map-panel">
         <div id="cesiumContainer"></div>
+        <%- include('camera_controls') %>
+
       </div>
     </div>
 
@@ -138,6 +140,47 @@
 
       const email = '<%= userProfile.email %>';
 
+      let cameraMode = 'free'; // free, orbit, cockpit
+      let trackedDroneId = null;
+
+      function setCameraMode(mode) {
+        cameraMode = mode;
+        console.log("Camera Mode:", mode);
+
+        if (mode === 'free') {
+          viewer.trackedEntity = undefined;
+        } else if (mode === 'orbit') {
+          if (trackedDroneId && droneEntities.has(trackedDroneId)) {
+            viewer.trackedEntity = droneEntities.get(trackedDroneId);
+          }
+        } else if (mode === 'cockpit') {
+          viewer.trackedEntity = undefined; // We manually update for cockpit
+        }
+
+        // Update button styles
+        document.querySelectorAll('#camera-controls button').forEach(btn => {
+          // Check if the button's text content (case-insensitive) includes the mode
+          const btnText = btn.textContent.toLowerCase();
+          const modeText = mode.toLowerCase();
+
+          if (btnText.includes(modeText)) {
+            btn.classList.add('active');
+            btn.classList.remove('btn-outline-light', 'btn-outline-secondary');
+            btn.classList.add('btn-primary');
+          } else {
+            btn.classList.remove('active', 'btn-primary');
+            // Reset to default outline based on original state or a generic one
+            if (btnText.includes('orbit')) {
+              btn.classList.add('btn-outline-light');
+            } else if (btnText.includes('cockpit')) {
+              btn.classList.add('btn-outline-light'); // Or btn-outline-primary if that was its original
+            } else if (btnText.includes('free')) {
+              btn.classList.add('btn-outline-secondary');
+            }
+          }
+        });
+      }
+
       // Initialize Viewer with no default imagery
       var viewer = new Cesium.Viewer('cesiumContainer', {
         geocoder: false,
@@ -151,6 +194,35 @@
         timeline: false,
         navigationHelpButton: false,
         imageryProvider: false // Explicitly disable constructor imagery to avoid issues
+      });
+
+      // Update Cockpit View every tick
+      viewer.clock.onTick.addEventListener(function (clock) {
+        if (cameraMode === 'cockpit' && trackedDroneId && droneEntities.has(trackedDroneId)) {
+          const entity = droneEntities.get(trackedDroneId);
+          if (entity && entity.position) {
+            const position = entity.position.getValue(clock.currentTime);
+            const orientation = entity.orientation.getValue(clock.currentTime); // Quaternion
+
+            if (position && orientation) {
+              // Get Heading/Pitch/Roll from Quaternion
+              const hpr = Cesium.HeadingPitchRoll.fromQuaternion(orientation);
+
+              // Set camera to drone position
+              viewer.camera.setView({
+                destination: position,
+                orientation: {
+                  heading: hpr.heading,
+                  pitch: hpr.pitch, // Look slightly down? ,
+                  roll: hpr.roll
+                }
+              });
+
+              // Move slightly forward/up? 
+              // For now, exactly at center is fine for FPV
+            }
+          }
+        }
       });
 
       // Use UrlTemplateImageryProvider (XYZ tiles) for maximum stability
@@ -194,7 +266,7 @@
       setInterval(fetchFlightPlans, 5000); // Fetch every 5s
       fetchFlightPlans(); // Initial fetch
 
-      // Handle selection to show planned route
+      // Handle selection to show planned route & update camera
       viewer.selectedEntityChanged.addEventListener((entity) => {
         // Remove previous route
         if (selectedRouteEntity) {
@@ -203,6 +275,7 @@
         }
 
         if (entity && flightPlans.has(entity.id)) {
+          // 1. Show Route
           const plan = flightPlans.get(entity.id);
           const positions = plan.waypoints.map(wp =>
             Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.altitude_m)
@@ -218,7 +291,20 @@
               })
             }
           });
-          console.log('Displayed planned route for', entity.id);
+        }
+
+        // 2. Update Camera Tracking
+        if (entity && droneEntities.has(entity.id)) {
+          trackedDroneId = entity.id;
+          if (cameraMode === 'orbit') {
+            viewer.trackedEntity = entity;
+          }
+          // If Cockpit, tick loop picks up trackedDroneId automatically
+        } else {
+          trackedDroneId = null;
+          if (cameraMode === 'orbit') {
+            viewer.trackedEntity = undefined;
+          }
         }
       });
       const droneData = new Map(); // id -> {lat, lon, alt, speed, heading}
@@ -251,7 +337,13 @@
 
           row.onclick = () => {
             const entity = droneEntities.get(droneId);
-            if (entity) viewer.flyTo(entity, { duration: 1.5 });
+            if (entity) {
+              viewer.selectedEntity = entity; // Trigger selection logic
+              // Only flyTo if not in Cockpit mode (avoids jarring shift)
+              if (cameraMode !== 'cockpit') {
+                viewer.flyTo(entity, { duration: 1.5 });
+              }
+            }
           };
           tbody.appendChild(row);
         });

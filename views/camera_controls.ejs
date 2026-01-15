@@ -1,0 +1,18 @@
+<div id="camera-controls" class="card p-2"
+    style="position: absolute; top: 20px; right: 20px; z-index: 1000; width: 220px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255,255,255,0.1);">
+    <h6 class="text-xs font-bold text-gray-400 uppercase mb-2 border-bottom border-gray-700 pb-1">Camera Mode</h6>
+    <div class="d-grid gap-2">
+        <button class="btn btn-sm btn-outline-light text-start" onclick="setCameraMode('orbit')">
+            <i class="bi bi-bullseye me-2"></i> Orbit (Default)
+        </button>
+        <button class="btn btn-sm btn-outline-light text-start" onclick="setCameraMode('cockpit')">
+            <i class="bi bi-airplane-engines me-2"></i> Cockpit (FPV)
+        </button>
+        <button class="btn btn-sm btn-outline-secondary text-start" onclick="setCameraMode('free')">
+            <i class="bi bi-arrows-move me-2"></i> Free Look
+        </button>
+    </div>
+    <div class="mt-2 text-xs text-secondary text-center">
+        Click a drone to track
+    </div>
+</div>
