@@ -6,9 +6,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <link rel="icon" href="/assets/img/favicon.png" />
-  <link href="https://fonts.googleapis.com/css?family=Karla" rel="stylesheet" type="text/css" />
-  <link href="https://fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet" type="text/css" />
-
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link type="text/css" rel="stylesheet" href="/assets/css/bootstrap.min.css" />
   <link type="text/css" rel="stylesheet" href="/assets/css/bootstrap-icons.css" />
   <link rel="stylesheet" type="text/css" href="/assets/css/base.css" />
@@ -27,417 +25,623 @@
 <body>
   <%- include('navigation') -%>
 
-    <div class="container-fluid">
-      <div class="row">
-        <div class="col-sm-4 col-md-4 main">
-          <br />
-          <% if (Object.keys(errors).length) { %>
-            <h5 class="errors-heading">Oops, please correct the following:</h5>
-            <ul class="errors-list">
-              <% Object.values(errors).forEach(error=> { %>
-                <li class="">
-                  <%= error.msg %>
-                </li>
-                <% }) %>
-            </ul>
-            <% } %>
-              <div class="information">
-                <div>
-                  <h6>
-                    Select Spotlight
-                    <small id="lat_lng" class="text-muted">Latitude: <span id="spotlight_latitude"></span> Longitude:
-                      <span id="spotlight_longitude"></span></small>
-                  </h6>
-                </div>
-                <div id="manual_spotlight_controls">
-                  <button onclick="stream_flights()" class="button" id="retrive_flights" type="submit">
-                    Stream flights</button><br />
-                  <small class="text-muted">Zoom and pan globe with your mouse to your area of interest and
-                    click on stream flights</small>
-                </div>
+    <div class="app-container">
+      <div class="sidebar-panel">
 
-                <div class="d-none loading-spinner" id="spinner-cont">
-                  <br />
-                  <img src="/assets/img/spinner.gif" height="30px" />
-                </div>
-                <br>
-                <p id="clicked-entity-description"></p>
-                <div class="live-updates" id="live-updates">
-                  <ul class="text-right list-inline" id="latest-status"></ul>
-                </div>
-                <hr />
-              </div>
+        <!-- Status / Spinner -->
+        <div class="d-none loading-spinner mb-3" id="spinner-cont">
+          <div class="d-flex align-items-center text-accent">
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            <small>Live Stream Active</small>
+          </div>
         </div>
 
-        <div class="col-sm-8 col-md-8 sidebar">
-          <div id="cesiumContainer"></div>
+        <!-- Manual Controls (Hidden when streaming) -->
+        <div id="manual_spotlight_controls" class="card mb-4">
+          <div class="card-body">
+            <h6 class="card-title text-uppercase text-muted mb-3" style="font-size: 0.75rem; letter-spacing: 1px;">Area
+              Selection</h6>
+            <p class="card-text small mb-3">
+              <span id="lat_lng" class="text-mono">
+                Lat: <span id="spotlight_latitude" class="text-white">--</span> <br>
+                Lng: <span id="spotlight_longitude" class="text-white">--</span>
+              </span>
+            </p>
+            <button onclick="stream_flights()" class="btn btn-primary w-100" id="retrive_flights" type="submit">
+              <i class="bi bi-broadcast me-2"></i>Stream Flights
+            </button>
+            <div class="mt-2 text-center">
+              <small class="text-muted" style="font-size: 0.7rem;">Pan map to area & click stream</small>
+            </div>
+          </div>
         </div>
+
+        <!-- Description / Info -->
+        <p id="clicked-entity-description" class="mb-3 text-white small"></p>
+        <div class="live-updates mb-3" id="live-updates">
+          <ul class="list-unstyled" id="latest-status"></ul>
+        </div>
+
+        <!-- Flight List Panel -->
+        <div id="flight-list-container" class="card flex-fill">
+          <div class="card-header d-flex justify-content-between align-items-center border-0 pb-0 pt-3 bg-transparent">
+            <h6 class="text-uppercase text-muted mb-0" style="font-size: 0.75rem; letter-spacing: 1px;">Active Flights
+            </h6>
+            <span id="flight-count" class="badge bg-accent rounded-pill">0</span>
+          </div>
+          <div class="card-body p-0 mt-2" style="overflow-y: auto;">
+            <div id="flight-list" class="h-100">
+              <table class="table table-hover table-borderless table-sm align-middle mb-0" style="font-size: 0.85rem;">
+                <thead class="text-muted border-bottom border-secondary" style="font-size: 0.75rem;">
+                  <tr>
+                    <th class="ps-3">ID</th>
+                    <th>Alt</th>
+                    <th>Speed</th>
+                  </tr>
+                </thead>
+                <tbody id="flight-list-body" class="text-white">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Info -->
+        <div class="mt-auto pt-3 border-top border-secondary text-muted small" style="font-size: 0.7rem;">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span>System: <%= userProfile.email %></span>
+            <span id="connectivity_status_badge"><i class="bi bi-circle-fill text-secondary"
+                style="font-size: 8px;"></i></span>
+          </div>
+          <p class="mb-0">
+            Flight Blender: <span id="connectivity_status">Check</span>
+            <button class="btn btn-link p-0 ms-1 text-accent" onclick="check_blender_connectivity()"
+              style="vertical-align: baseline; font-size: inherit;">
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+          </p>
+          <p class="mb-0 mt-1">
+            <a href="https://blog.openskies.sh" target="_blank"
+              class="text-secondary text-decoration-none hover-white">Help & Documentation</a>
+          </p>
+        </div>
+      </div>
+
+      <div class="map-panel">
+        <div id="cesiumContainer"></div>
       </div>
     </div>
 
-    <%- include('footer') -%>
-
-      <!-- Robust Data Injection: Store data in a non-executable script block -->
-      <script id="server_data" type="application/json">
+    <!-- Robust Data Injection: Store data in a non-executable script block -->
+    <script id="server_data" type="application/json">
         <%- JSON.stringify(data) %>
     </script>
 
-      <script type="text/javascript">
-        console.log("Spotlight script loaded");
-        var socketHost = location.origin.replace(/^http/, 'ws');
-        let clicked_entity = document.getElementById("clicked-entity-description");
-        let list = document.getElementById("latest-status");
-        var addToList = function (item_value) {
-          while (list.children.length >= 3) {
-            list.removeChild(list.firstChild);
-          }
-          var item = document.createElement("li");
-          item.innerHTML = item_value;
-          list.appendChild(item);
+    <script type="text/javascript">
+      console.log("Spotlight script loaded");
+      var socketHost = location.origin.replace(/^http/, 'ws');
+      let clicked_entity = document.getElementById("clicked-entity-description");
+      let list = document.getElementById("latest-status");
+      var addToList = function (item_value) {
+        while (list.children.length >= 3) {
+          list.removeChild(list.firstChild);
         }
+        var item = document.createElement("li");
+        item.innerHTML = item_value;
+        list.appendChild(item);
+      }
 
-        var clearList = function () {
-          list.innerHTML = "";
-        }
+      var clearList = function () {
+        list.innerHTML = "";
+      }
 
-        const email = '<%= userProfile.email %>';
+      const email = '<%= userProfile.email %>';
 
-        // Initialize Viewer with no default imagery
-        var viewer = new Cesium.Viewer('cesiumContainer', {
-          geocoder: false,
-          homeButton: false,
-          baseLayerPicker: false,
-          infoBox: false,
-          sceneModePicker: false,
-          animation: false,
-          selectionIndicator: false,
-          fullscreenButton: false,
-          timeline: false,
-          navigationHelpButton: false,
-          imageryProvider: false // Explicitly disable constructor imagery to avoid issues
+      // Initialize Viewer with no default imagery
+      var viewer = new Cesium.Viewer('cesiumContainer', {
+        geocoder: false,
+        homeButton: false,
+        baseLayerPicker: false,
+        infoBox: false,
+        sceneModePicker: false,
+        animation: false,
+        selectionIndicator: false,
+        fullscreenButton: false,
+        timeline: false,
+        navigationHelpButton: false,
+        imageryProvider: false // Explicitly disable constructor imagery to avoid issues
+      });
+
+      // Use UrlTemplateImageryProvider (XYZ tiles) for maximum stability
+      // This bypasses ArcGisMapServer metadata requests which were crashing
+      try {
+        const esriImagery = new Cesium.UrlTemplateImageryProvider({
+          url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          credit: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community'
         });
+        viewer.imageryLayers.addImageryProvider(esriImagery);
+        console.log("Esri XYZ Imagery added manually");
+      } catch (err) {
+        console.error("Failed to add Esri Imagery", err);
+      }
 
-        // Use UrlTemplateImageryProvider (XYZ tiles) for maximum stability
-        // This bypasses ArcGisMapServer metadata requests which were crashing
+      // Set default view to Irvine, CA
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(-117.8265, 33.6846, 5000) // 5km up
+      });
+
+      // Track drones by ID and their position history
+      const droneEntities = new Map(); // id -> entity
+      const droneTrails = new Map(); // Store trail positions
+      const flightPlans = new Map(); // Store flight plans locally
+      let selectedRouteEntity = null; // Track currently displayed route
+
+      // Poll for flight plans
+      async function fetchFlightPlans() {
         try {
-          const esriImagery = new Cesium.UrlTemplateImageryProvider({
-            url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            credit: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community'
-          });
-          viewer.imageryLayers.addImageryProvider(esriImagery);
-          console.log("Esri XYZ Imagery added manually");
-        } catch (err) {
-          console.error("Failed to add Esri Imagery", err);
-        }
-
-        // Set default view to Irvine, CA
-        viewer.camera.setView({
-          destination: Cesium.Cartesian3.fromDegrees(-117.8265, 33.6846, 5000) // 5km up
-        });
-
-        // Track drones by ID and their position history
-        const droneEntities = new Map(); // id -> entity
-        const droneTrails = new Map(); // id -> [positions]
-        const MAX_TRAIL_POINTS = 60; // Keep last 60 positions (1 min at 1Hz)
-
-        function updateDronePosition(droneId, lon, lat, altMeters, heading, speed) {
-          try {
-            const validLon = Number(lon) || 0;
-            const validLat = Number(lat) || 0;
-            const validAlt = Number(altMeters) || 0;
-
-            if (validLon === 0 && validLat === 0) return; // Skip invalid 0,0 points
-
-            const position = Cesium.Cartesian3.fromDegrees(validLon, validLat, validAlt);
-
-            // Update trail history
-            if (!droneTrails.has(droneId)) {
-              droneTrails.set(droneId, []);
-            }
-            const trail = droneTrails.get(droneId);
-            trail.push(position);
-            if (trail.length > MAX_TRAIL_POINTS) {
-              trail.shift();
-            }
-
-            // Update or create drone entity
-            if (!droneEntities.has(droneId)) {
-              console.log(`Creating drone ${droneId} at ${validLat}, ${validLon}`);
-              const entity = viewer.entities.add({
-                id: droneId,
-                position: position, // Initial position
-                point: {
-                  pixelSize: 12,
-                  color: Cesium.Color.CYAN,
-                  outlineColor: Cesium.Color.WHITE,
-                  outlineWidth: 2
-                },
-                label: {
-                  text: droneId,
-                  font: '14px Helvetica',
-                  fillColor: Cesium.Color.WHITE,
-                  outlineColor: Cesium.Color.BLACK,
-                  outlineWidth: 2,
-                  style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-                  verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-                  pixelOffset: new Cesium.Cartesian2(0, -15)
-                },
-                description: `Speed: ${speed?.toFixed(1) || 0} m/s<br>Heading: ${heading?.toFixed(0) || 0}°`,
-                polyline: {
-                  positions: new Cesium.CallbackProperty(() => droneTrails.get(droneId), false),
-                  width: 3,
-                  material: new Cesium.PolylineGlowMaterialProperty({
-                    glowPower: 0.2,
-                    color: Cesium.Color.YELLOW
-                  })
-                }
-              });
-              droneEntities.set(droneId, entity);
-            } else {
-              const entity = droneEntities.get(droneId);
-              entity.position = position;
-              entity.description = `Speed: ${speed?.toFixed(1) || 0} m/s<br>Heading: ${heading?.toFixed(0) || 0}°<br>Altitude: ${validAlt.toFixed(1)} m`;
-            }
-          } catch (error) {
-            console.error("Error in updateDronePosition:", error);
-          }
-        }
-
-        function clearAllDrones() {
-          droneEntities.forEach((entity) => viewer.entities.remove(entity));
-          droneEntities.clear();
-          droneTrails.clear();
-        }
-
-        // Subscribe to changes in selectedEntity
-        viewer.selectedEntityChanged.addEventListener(function (entity) {
-          if (entity) {
-            clicked_entity.innerHTML = "";
-            // Display custom UI or pop-up with entity properties
-            if (entity.description) {
-              clicked_entity.innerHTML = entity.description.getValue();
-            } else {
-              clicked_entity.innerHTML = "No additional information available.";
-            }
-          }
-        });
-        var scene = viewer.scene;
-        var clock = viewer.clock;
-        var camera = viewer.camera;
-
-        var cameralat;
-        var cameralng;
-
-
-        camera.moveStart.addEventListener(function () {
-          // the camera started to move
-        });
-        camera.moveEnd.addEventListener(function () {
-          // the camera stopped moving
-          let center = get_globe_center();
-          const lat_cont = document.getElementById('spotlight_latitude');
-          const lng_cont = document.getElementById('spotlight_longitude');
-          lat_cont.innerText = parseFloat(center.lat).toFixed(2);
-          lng_cont.innerText = parseFloat(center.lng).toFixed(2);
-        });
-        function remove_spaces(string) {
-          return string.replace(/\n/g, "").replace(/ /g, '');
-        }
-        function get_globe_center() {
-          var windowPosition = new Cesium.Cartesian2(viewer.container.clientWidth / 2, viewer.container.clientHeight / 2);
-          var pickPosition = viewer.camera.pickEllipsoid(windowPosition);
-          if (!pickPosition) {
-            return { "lat": 0, "lng": 0 };
-          }
-          var pickPositionCartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(pickPosition);
-          const lng = pickPositionCartographic.longitude * (180 / Math.PI);
-          const lat = pickPositionCartographic.latitude * (180 / Math.PI);
-
-          return { "lat": lat, "lng": lng };
-        }
-
-
-        function stream_flights() {
-          const center = get_globe_center();
-          // If we are essentially at 0,0 (start) or user wants default, use Irvine
-          let lat = center['lat'];
-          let lng = center['lng'];
-          // Default to Irvine if user hasn't moved much or it's 0,0
-          if (Math.abs(lat) < 1 && Math.abs(lng) < 1) {
-            lat = 33.6846;
-            lng = -117.8265;
-          }
-          let url = '?lat=' + lat + '&lng=' + lng;
-          window.location.href = url;
-        }
-
-
-        const map_querystring = window.location.search;
-        const date_params = new URLSearchParams(map_querystring);
-
-        let lat = date_params.get('lat');
-        let lng = date_params.get('lng');
-
-        if (!lat) {
-          lat = 0;
-        }
-
-        if (!lng) {
-          lng = 0;
-        }
-
-        // Robust data loading: Parse from the JSON script block explicitly
-        let view_data = {};
-        try {
-          const el = document.getElementById('server_data');
-          if (el && el.textContent) {
-            view_data = JSON.parse(el.textContent);
-          }
-        } catch (e) {
-          console.error("Data parse error", e);
-        }
-
-        if (lat !== 0 && lng !== 0) {
-
-          let manual_spotlight_controls_cont = document.getElementById('manual_spotlight_controls');
-          manual_spotlight_controls_cont.classList.add('d-none');
-          const lat_cont = document.getElementById('spotlight_latitude');
-          const lng_cont = document.getElementById('spotlight_longitude');
-          lat_cont.innerText = parseFloat(lat).toFixed(2);
-          lng_cont.innerText = parseFloat(lng).toFixed(2);
-
-          // Safely load AOI buffer if available
-          if (view_data && view_data['aoi_buffer']) {
-            let aoi_buffer = view_data['aoi_buffer'];
-            let aoi = viewer.dataSources.add(Cesium.GeoJsonDataSource.load(aoi_buffer, {
-              stroke: Cesium.Color.BLACK,
-              fill: Cesium.Color.WHITE.withAlpha(0.2),
-              strokeWidth: 3
-            }));
-            viewer.zoomTo(aoi);
-          }
-
-          let spinner_cont = document.getElementById("spinner-cont");
-          spinner_cont.classList.remove("d-none"); // Show spinner
-
-          if (view_data && view_data['msg']) {
-            humane.log(view_data['msg'], {
-              addnCls: 'humane-flatty-success'
+          const response = await fetch('http://localhost:3000/v1/flights');
+          if (response.ok) {
+            const plans = await response.json();
+            plans.forEach(plan => {
+              flightPlans.set(plan.drone_id, plan);
             });
           }
+        } catch (e) {
+          console.warn('Failed to fetch flight plans:', e);
+        }
+      }
+      setInterval(fetchFlightPlans, 5000); // Fetch every 5s
+      fetchFlightPlans(); // Initial fetch
 
-          let socket = io.connect(socketHost);
-          socket.on('connect_failed', function () {
-            errorMsg('Data connection failed, please contact your administrator.');
+      // Handle selection to show planned route
+      viewer.selectedEntityChanged.addEventListener((entity) => {
+        // Remove previous route
+        if (selectedRouteEntity) {
+          viewer.entities.remove(selectedRouteEntity);
+          selectedRouteEntity = null;
+        }
+
+        if (entity && flightPlans.has(entity.id)) {
+          const plan = flightPlans.get(entity.id);
+          const positions = plan.waypoints.map(wp =>
+            Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.altitude_m)
+          );
+
+          selectedRouteEntity = viewer.entities.add({
+            polyline: {
+              positions: positions,
+              width: 2,
+              material: new Cesium.PolylineDashMaterialProperty({
+                color: Cesium.Color.fromCssColorString('#10b981'), // Emerald-500
+                dashLength: 16.0
+              })
+            }
           });
-          socket.on('disconnect', function () {
-            console.log('disconnected');
-          });
-          socket.on('welcome', function (msg) {
-            console.log('Welcome message:', msg);
-          });
-          socket.on('connect', function () {
-            socket.emit('room', email);
-          });
-          socket.on('connect_timeout', function () {
-            console.log("timed out");
+          console.log('Displayed planned route for', entity.id);
+        }
+      });
+      const droneData = new Map(); // id -> {lat, lon, alt, speed, heading}
+      const MAX_TRAIL_POINTS = 60; // Keep last 60 positions (1 min at 1Hz)
 
-          });
-          socket.on('message', function (spotlight_data) {
-            if (spotlight_data.type == 'message') {
-              if (spotlight_data.alert_type == 'observation_in_aoi') {
-                const cur_result = spotlight_data.results.object;
-                const droneId = spotlight_data.results.id;
-                const lon = cur_result.coordinates[0];
-                const lat = cur_result.coordinates[1];
-                const altMeters = cur_result.coordinates[2] / 1000; // mm to m
-                const heading = cur_result.heading || 0;
-                const speed = cur_result.speed_mps || 0;
+      // Update the flight list UI
+      function updateFlightList() {
+        const tbody = document.getElementById('flight-list-body');
+        const countBadge = document.getElementById('flight-count');
+        if (!tbody) return;
 
-                updateDronePosition(droneId, lon, lat, altMeters, heading, speed);
-              } else if (spotlight_data.alert_type == 'aoi_closed') {
-                // GeoFence Closed - Clear all traffic
-                clearAllDrones();
-                viewer.dataSources.removeAll();
-                humane.log("Airspace scanning closed", {
-                  addnCls: 'humane-flatty-info'
-                });
+        tbody.innerHTML = '';
+        let count = 0;
 
-                let spinner_cont = document.getElementById("spinner-cont");
-                spinner_cont.classList.add("d-none");
+        droneData.forEach((data, droneId) => {
+          count++;
+          const row = document.createElement('tr');
+          // Add cursor pointer for interactivity
+          row.style.cursor = 'pointer';
 
-                let manual_spotlight_controls_cont = document.getElementById('manual_spotlight_controls');
-                manual_spotlight_controls_cont.classList.remove('d-none');
-                clearList();
+          /* 
+            Premium UI Table Row 
+            Using data.speed || 0 to ensure we don't show NaN or undefined
+          */
+          row.innerHTML = `
+            <td class="ps-3"><span class="fw-medium text-accent">${droneId}</span></td>
+            <td><span class="text-white">${data.alt.toFixed(0)}</span> <small class="text-muted">m</small></td>
+            <td><span class="text-white">${(data.speed || 0).toFixed(1)}</span> <small class="text-muted">m/s</small></td>
+          `;
 
+          row.onclick = () => {
+            const entity = droneEntities.get(droneId);
+            if (entity) viewer.flyTo(entity, { duration: 1.5 });
+          };
+          tbody.appendChild(row);
+        });
+
+        if (countBadge) countBadge.textContent = count;
+      }
+
+      /* Theme Toggler Logic */
+      function toggleTheme() {
+        const body = document.body;
+        const icon = document.getElementById('theme-icon');
+
+        if (body.getAttribute('data-theme') === 'light') {
+          body.setAttribute('data-theme', 'dark');
+          icon.classList.remove('bi-moon-fill');
+          icon.classList.add('bi-sun-fill');
+          localStorage.setItem('theme', 'dark');
+        } else {
+          body.setAttribute('data-theme', 'light');
+          icon.classList.remove('bi-sun-fill');
+          icon.classList.add('bi-moon-fill');
+          localStorage.setItem('theme', 'light');
+        }
+      }
+
+      // Load saved theme
+      if (localStorage.getItem('theme') === 'light') {
+        document.body.setAttribute('data-theme', 'light');
+        document.addEventListener('DOMContentLoaded', () => {
+          const icon = document.getElementById('theme-icon');
+          if (icon) {
+            icon.classList.remove('bi-sun-fill');
+            icon.classList.add('bi-moon-fill');
+          }
+        });
+      }
+
+      function updateDronePosition(droneId, lon, lat, altMeters, heading, speed) {
+        try {
+          const validLon = Number(lon) || 0;
+          const validLat = Number(lat) || 0;
+          const validAlt = Number(altMeters) || 0;
+
+          if (validLon === 0 && validLat === 0) return; // Skip invalid 0,0 points
+
+          const position = Cesium.Cartesian3.fromDegrees(validLon, validLat, validAlt);
+
+          // Update trail history
+          if (!droneTrails.has(droneId)) {
+            droneTrails.set(droneId, []);
+          }
+          const trail = droneTrails.get(droneId);
+          trail.push(position);
+          if (trail.length > MAX_TRAIL_POINTS) {
+            trail.shift();
+          }
+
+          // Update or create drone entity
+          const description = `
+            <table class="table table-sm table-borderless text-white mb-0">
+              <tbody>
+                <tr><td>ID:</td><td class="fw-bold">${droneId}</td></tr>
+                <tr><td>Speed:</td><td>${(speed || 0).toFixed(1)} m/s</td></tr>
+                <tr><td>Heading:</td><td>${(heading || 0).toFixed(0)}°</td></tr>
+                <tr><td>Altitude:</td><td>${altMeters.toFixed(0)} m</td></tr>
+                <tr><td>Lat/Lon:</td><td>${lat.toFixed(5)}, ${lon.toFixed(5)}</td></tr>
+              </tbody>
+            </table>
+          `;
+
+          if (!droneEntities.has(droneId)) {
+            console.log(`Creating drone ${droneId} at ${validLat}, ${validLon}`);
+            const entity = viewer.entities.add({
+              id: droneId,
+              name: `Drone ${droneId}`, // Title for InfoBox
+              position: position, // Initial position
+              point: {
+                pixelSize: 14,
+                color: Cesium.Color.fromCssColorString('#0ea5e9'), // Sky-500
+                outlineColor: Cesium.Color.WHITE,
+                outlineWidth: 2
+              },
+              label: {
+                text: `${droneId}\n${(speed || 0).toFixed(1)} m/s`, // Multi-line label
+                font: '12px Inter',
+                fillColor: Cesium.Color.WHITE,
+                showBackground: true,
+                backgroundColor: Cesium.Color.fromCssColorString('#0f172a').withAlpha(0.7), // Slate-900
+                backgroundPadding: new Cesium.Cartesian2(4, 4),
+                verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                pixelOffset: new Cesium.Cartesian2(0, -20),
+                distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000) // Hide when zoomed out
+              },
+              description: description,
+              polyline: {
+                positions: new Cesium.CallbackProperty(() => droneTrails.get(droneId), false),
+                width: 3,
+                material: new Cesium.PolylineGlowMaterialProperty({
+                  glowPower: 0.2,
+                  color: Cesium.Color.YELLOW
+                })
               }
-              else if (spotlight_data.alert_type == 'geo_fence_in_aoi') {
-                const result_geo_json = spotlight_data.results.objects;
+            });
+            droneEntities.set(droneId, entity);
+          } else {
+            const entity = droneEntities.get(droneId);
+            entity.position = position;
+            // Update dynamic properties
+            entity.description = description;
+            entity.label.text = `${droneId}\n${(speed || 0).toFixed(1)} m/s`;
+          }
 
-                for (let index = 0; index < result_geo_json.length; index++) {
-                  const geo_json_element = result_geo_json[index]['object'];
-                  const geo_fence_heights = result_geo_json[index]['fields'];
-                  var dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
-                    function (dataSource) {
-                      var p = dataSource.entities.values;
-                      for (var i = 0; i < p.length; i++) {
-                        p[i].polygon.height = geo_fence_heights[1]; // or height property
-                        p[i].polygon.extrudedHeight = geo_fence_heights[
-                          0]; // or height property
-                        p[i].polygon.outlineColor = Cesium.Color.PINK.withAlpha(0.2),
-                          p[i].polygon.material = Cesium.Color.HOTPINK.withAlpha(0.2)
-                      }
-                      viewer.dataSources.add(dataSource);
+          // Update droneData for flight list
+          droneData.set(droneId, { lat: validLat, lon: validLon, alt: validAlt, speed, heading });
+          updateFlightList();
+        } catch (error) {
+          console.error("Error in updateDronePosition:", error);
+        }
+      }
+
+      function clearAllDrones() {
+        droneEntities.forEach((entity) => viewer.entities.remove(entity));
+        droneEntities.clear();
+        droneTrails.clear();
+        droneData.clear();
+        updateFlightList();
+      }
+
+      // Subscribe to changes in selectedEntity
+      viewer.selectedEntityChanged.addEventListener(function (entity) {
+        if (entity) {
+          clicked_entity.innerHTML = "";
+          // Display custom UI or pop-up with entity properties
+          if (entity.description) {
+            clicked_entity.innerHTML = entity.description.getValue();
+          } else {
+            clicked_entity.innerHTML = "No additional information available.";
+          }
+        }
+      });
+      var scene = viewer.scene;
+      var clock = viewer.clock;
+      var camera = viewer.camera;
+
+      var cameralat;
+      var cameralng;
+
+
+      camera.moveStart.addEventListener(function () {
+        // the camera started to move
+      });
+      camera.moveEnd.addEventListener(function () {
+        // the camera stopped moving
+        let center = get_globe_center();
+        const lat_cont = document.getElementById('spotlight_latitude');
+        const lng_cont = document.getElementById('spotlight_longitude');
+        lat_cont.innerText = parseFloat(center.lat).toFixed(2);
+        lng_cont.innerText = parseFloat(center.lng).toFixed(2);
+      });
+      function remove_spaces(string) {
+        return string.replace(/\n/g, "").replace(/ /g, '');
+      }
+      function get_globe_center() {
+        var windowPosition = new Cesium.Cartesian2(viewer.container.clientWidth / 2, viewer.container.clientHeight / 2);
+        var pickPosition = viewer.camera.pickEllipsoid(windowPosition);
+        if (!pickPosition) {
+          return { "lat": 0, "lng": 0 };
+        }
+        var pickPositionCartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(pickPosition);
+        const lng = pickPositionCartographic.longitude * (180 / Math.PI);
+        const lat = pickPositionCartographic.latitude * (180 / Math.PI);
+
+        return { "lat": lat, "lng": lng };
+      }
+
+
+      function stream_flights() {
+        const center = get_globe_center();
+        // If we are essentially at 0,0 (start) or user wants default, use Irvine
+        let lat = center['lat'];
+        let lng = center['lng'];
+        // Default to Irvine if user hasn't moved much or it's 0,0
+        if (Math.abs(lat) < 1 && Math.abs(lng) < 1) {
+          lat = 33.6846;
+          lng = -117.8265;
+        }
+        let url = '?lat=' + lat + '&lng=' + lng;
+        window.location.href = url;
+      }
+
+
+      const map_querystring = window.location.search;
+      const date_params = new URLSearchParams(map_querystring);
+
+      let lat = date_params.get('lat');
+      let lng = date_params.get('lng');
+
+      if (!lat) {
+        lat = 0;
+      }
+
+      if (!lng) {
+        lng = 0;
+      }
+
+      // Auto-stream: If no coordinates provided, redirect with Irvine defaults
+      if (lat == 0 && lng == 0) {
+        // Auto-redirect to stream flights centered on Irvine
+        window.location.href = '?lat=33.6846&lng=-117.8265';
+      }
+
+      // Robust data loading: Parse from the JSON script block explicitly
+      let view_data = {};
+      try {
+        const el = document.getElementById('server_data');
+        if (el && el.textContent) {
+          view_data = JSON.parse(el.textContent);
+        }
+      } catch (e) {
+        console.error("Data parse error", e);
+      }
+
+      if (lat !== 0 && lng !== 0) {
+
+        let manual_spotlight_controls_cont = document.getElementById('manual_spotlight_controls');
+        manual_spotlight_controls_cont.classList.add('d-none');
+        const lat_cont = document.getElementById('spotlight_latitude');
+        const lng_cont = document.getElementById('spotlight_longitude');
+        lat_cont.innerText = parseFloat(lat).toFixed(2);
+        lng_cont.innerText = parseFloat(lng).toFixed(2);
+
+        // Safely load AOI buffer if available
+        if (view_data && view_data['aoi_buffer']) {
+          let aoi_buffer = view_data['aoi_buffer'];
+          let aoi = viewer.dataSources.add(Cesium.GeoJsonDataSource.load(aoi_buffer, {
+            stroke: Cesium.Color.BLACK,
+            fill: Cesium.Color.WHITE.withAlpha(0.2),
+            strokeWidth: 3
+          }));
+          viewer.zoomTo(aoi);
+        }
+
+        let spinner_cont = document.getElementById("spinner-cont");
+        spinner_cont.classList.remove("d-none"); // Show spinner
+
+        if (view_data && view_data['msg']) {
+          humane.log(view_data['msg'], {
+            addnCls: 'humane-flatty-success'
+          });
+        }
+
+        let socket = io.connect(socketHost);
+        socket.on('connect_failed', function () {
+          errorMsg('Data connection failed, please contact your administrator.');
+        });
+        socket.on('disconnect', function () {
+          console.log('disconnected');
+        });
+        socket.on('welcome', function (msg) {
+          console.log('Welcome message:', msg);
+        });
+        socket.on('connect', function () {
+          socket.emit('room', email);
+        });
+        socket.on('connect_timeout', function () {
+          console.log("timed out");
+
+        });
+        socket.on('message', function (spotlight_data) {
+          if (spotlight_data.type == 'message') {
+            if (spotlight_data.alert_type == 'observation_in_aoi') {
+              const cur_result = spotlight_data.results.object;
+              const droneId = spotlight_data.results.id;
+              const lon = cur_result.coordinates[0];
+              const lat = cur_result.coordinates[1];
+              const altMeters = cur_result.coordinates[2] / 1000; // mm to m
+
+              // Metadata is stored as JSON string in Tile38 fields, not in object
+              // Try fields.metadata first (Tile38), fall back to object.metadata (direct)
+              let metadata = {};
+              try {
+                if (spotlight_data.results.fields && spotlight_data.results.fields.metadata) {
+                  if (typeof spotlight_data.results.fields.metadata === 'string') {
+                    try {
+                      metadata = JSON.parse(spotlight_data.results.fields.metadata);
+                    } catch (e) {
+                      console.warn("Error parsing fields metadata", e);
                     }
-                  );
+                  } else {
+                    metadata = spotlight_data.results.fields.metadata;
+                  }
+                } else if (cur_result.metadata) {
+                  metadata = cur_result.metadata;
                 }
+              } catch (e) {
+                console.warn('Failed to parse metadata:', e);
               }
-              else if (spotlight_data.alert_type == 'operational_intents_in_aoi') {
-                const result_geo_json = spotlight_data.results.objects;
 
-                for (let index = 0; index < result_geo_json.length; index++) {
-                  const geo_json_element = result_geo_json[index]['object'];
+              const heading = metadata.heading || 0;
+              const speed = metadata.speed_mps || 0;
 
-                  const flight_declaration_fields = result_geo_json[index]['fields'];
-                  const heights = flight_declaration_fields.filter(item => typeof item === 'number');
-                  const minHeight = Math.min(...heights);
-                  const maxHeight = Math.max(...heights);
-                  const strings = flight_declaration_fields.filter(item => typeof item === 'string');
-                  const [id, manager, state] = strings;
-                  let dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
-                    function (dataSource) {
-                      var p = dataSource.entities.values;
-                      for (var i = 0; i < p.length; i++) {
-                        p[i].polygon.height = minHeight; // or height property
-                        p[i].polygon.extrudedHeight = maxHeight; // or height property
-                        p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
-                          p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
-                        p[i].description = `ID: ${id}<br>Manager: ${manager}<br>State: ${state}`;
-                      }
-                      viewer.dataSources.add(dataSource);
+              // Debug log to verify data
+              if (speed > 0 || heading !== 0) {
+                console.log(`[${droneId}] Speed: ${speed.toFixed(1)} m/s, Heading: ${heading.toFixed(0)}°`);
+              }
 
+              updateDronePosition(droneId, lon, lat, altMeters, heading, speed);
+            } else if (spotlight_data.alert_type == 'aoi_closed') {
+              // GeoFence Closed - Clear all traffic
+              clearAllDrones();
+              viewer.dataSources.removeAll();
+              humane.log("Airspace scanning closed", {
+                addnCls: 'humane-flatty-info'
+              });
+
+              let spinner_cont = document.getElementById("spinner-cont");
+              spinner_cont.classList.add("d-none");
+
+              let manual_spotlight_controls_cont = document.getElementById('manual_spotlight_controls');
+              manual_spotlight_controls_cont.classList.remove('d-none');
+              clearList();
+
+            }
+            else if (spotlight_data.alert_type == 'geo_fence_in_aoi') {
+              const result_geo_json = spotlight_data.results.objects;
+
+              for (let index = 0; index < result_geo_json.length; index++) {
+                const geo_json_element = result_geo_json[index]['object'];
+                const geo_fence_heights = result_geo_json[index]['fields'];
+                var dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
+                  function (dataSource) {
+                    var p = dataSource.entities.values;
+                    for (var i = 0; i < p.length; i++) {
+                      p[i].polygon.height = geo_fence_heights[1]; // or height property
+                      p[i].polygon.extrudedHeight = geo_fence_heights[
+                        0]; // or height property
+                      p[i].polygon.outlineColor = Cesium.Color.PINK.withAlpha(0.2),
+                        p[i].polygon.material = Cesium.Color.HOTPINK.withAlpha(0.2)
                     }
-                  );
-
-                }
+                    viewer.dataSources.add(dataSource);
+                  }
+                );
               }
-              else if (spotlight_data.alert_type == 'observation_crosses_geofence') {
-                let d = new Date();
-                addToList('<span class="date">' + d.toLocaleTimeString() + '</span> ' + spotlight_data.results);
+            }
+            else if (spotlight_data.alert_type == 'operational_intents_in_aoi') {
+              const result_geo_json = spotlight_data.results.objects;
+
+              for (let index = 0; index < result_geo_json.length; index++) {
+                const geo_json_element = result_geo_json[index]['object'];
+
+                const flight_declaration_fields = result_geo_json[index]['fields'];
+                const heights = flight_declaration_fields.filter(item => typeof item === 'number');
+                const minHeight = Math.min(...heights);
+                const maxHeight = Math.max(...heights);
+                const strings = flight_declaration_fields.filter(item => typeof item === 'string');
+                const [id, manager, state] = strings;
+                let dataSource = Cesium.GeoJsonDataSource.load(geo_json_element).then(
+                  function (dataSource) {
+                    var p = dataSource.entities.values;
+                    for (var i = 0; i < p.length; i++) {
+                      p[i].polygon.height = minHeight; // or height property
+                      p[i].polygon.extrudedHeight = maxHeight; // or height property
+                      p[i].polygon.outlineColor = Cesium.Color.WHITE.withAlpha(0.2),
+                        p[i].polygon.material = Cesium.Color.YELLOW.withAlpha(0.2)
+                      p[i].description = `ID: ${id}<br>Manager: ${manager}<br>State: ${state}`;
+                    }
+                    viewer.dataSources.add(dataSource);
+
+                  }
+                );
 
               }
             }
-          });
-        }
-        else {
-          let center = get_globe_center();
-          const lat_cont = document.getElementById('spotlight_latitude');
-          const lng_cont = document.getElementById('spotlight_longitude');
-          lat_cont.innerText = parseFloat(center.lat).toFixed(2);
-          lng_cont.innerText = parseFloat(center.lng).toFixed(2);
+            else if (spotlight_data.alert_type == 'observation_crosses_geofence') {
+              let d = new Date();
+              addToList('<span class="date">' + d.toLocaleTimeString() + '</span> ' + spotlight_data.results);
 
-        }
-      </script>
+            }
+          }
+        });
+      }
+      else {
+        let center = get_globe_center();
+        const lat_cont = document.getElementById('spotlight_latitude');
+        const lng_cont = document.getElementById('spotlight_longitude');
+        lat_cont.innerText = parseFloat(center.lat).toFixed(2);
+        lng_cont.innerText = parseFloat(center.lng).toFixed(2);
+
+      }
+    </script>
 </body>
 
 </html>

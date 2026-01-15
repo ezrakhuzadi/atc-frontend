@@ -1,195 +1,230 @@
+/* =========================================
+   ATC-Drone Premium Design System
+   Theme: "Midnight Cockpit"
+   Primary Font: Inter
+   Colors: Slate (Backgrounds), Sky (Accents)
+   ========================================= */
 
-h5,
-h4,
-h6,
-h3,
-h2,
-h1 {
-    font-family: 'Karla', sans-serif;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
 
-#date-container {
-    margin-left:10px;
-}
-.schedule-button {
-    margin-left:10px;
-}
-textarea#geo_polygon_string {    
-    font-family: 'Karla', sans-serif;
-    /* height: 100px;     */
-    /* padding: 5px; */
-    /* display: block; */
-    /* width: 100%; */
-}
+:root {
+    --bg-body: #0f172a;
+    /* Slate 900 */
+    --bg-sidebar: #1e293b;
+    /* Slate 800 */
+    --bg-card: rgba(51, 65, 85, 0.5);
+    /* Slate 700 with opacity */
+    --bg-hover: rgba(56, 189, 248, 0.1);
 
-.button {
-    background-color: #4CAF50;
-    /* Green */
-    font-family: 'Karla', sans-serif;
-    border: none;
-    color: white;
-    padding: 15px 32px;
-    text-align: center;
-    text-decoration: none;
-    display: inline-block;
-    font-size: 16px;
-    margin: 4px 2px;
-    cursor: pointer;
-}
-#cesiumContainer {
-    height: 600px;
-}
-.buttongreen {
-    background-color: white;
-    color: black;
-    border: 2px solid #008CBA;
+    --text-primary: #f8fafc;
+    /* Slate 50 */
+    --text-secondary: #94a3b8;
+    /* Slate 400 */
+
+    --accent-color: #38bdf8;
+    /* Sky 400 */
+    --accent-glow: 0 0 10px rgba(56, 189, 248, 0.5);
+
+    --border-color: rgba(148, 163, 184, 0.1);
+
+    --font-main: 'Inter', sans-serif;
+    --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
 
-ol {
-    list-style: none;
+/* Light Theme Override */
+[data-theme="light"] {
+    --bg-body: #f8fafc;
+    /* Slate 50 */
+    --bg-sidebar: #ffffff;
+    --bg-card: rgba(255, 255, 255, 0.8);
+    --bg-hover: rgba(14, 165, 233, 0.1);
+
+    --text-primary: #0f172a;
+    /* Slate 900 */
+    --text-secondary: #64748b;
+    /* Slate 500 */
+
+    --accent-color: #0ea5e9;
+    /* Sky 500 (darker for light mode) */
+    --accent-glow: 0 0 10px rgba(14, 165, 233, 0.3);
+
+    --border-color: #e2e8f0;
+    /* Slate 200 */
+}
+
+/* Base Reset & Typography */
+html,
+body {
+    height: 100%;
+    margin: 0;
     padding: 0;
+    overflow: hidden;
+    /* App-like feel */
+    background-color: var(--bg-body);
+    font-family: var(--font-main);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
 }
 
-.active{
-    text-decoration: underline;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
     font-weight: 600;
-    
-    }
+    color: var(--text-primary);
+}
+
 a {
-    color: #00AED8;
+    color: var(--accent-color);
+    text-decoration: none;
+    transition: all 0.2s ease;
 }
 
 a:hover {
-    color: #00AED8;
+    color: #7dd3fc;
+    text-shadow: 0 0 5px rgba(56, 189, 248, 0.4);
 }
 
-#latest-status li {
-    font-size: 12px;
-}
-.date {
-    color:#c9c9c9;
-    font-size:10px;
-}
-
-.information h1 {
-    font-family: "Karla", Arial, Helvetica, sans-serif;
-    text-transform: uppercase;
-    font-size: 22px;
+/* Navbar Customization */
+.navbar {
+    background-color: var(--bg-sidebar) !important;
+    border-bottom: 1px solid var(--border-color);
+    z-index: 1000;
+    height: 56px;
 }
 
-.information h2 {
-    font-family: "Karla", Times, serif;
-    /*font-size: 12px;*/
-    /*font-style: italic;*/
-    font-weight: normal;
-    margin-top: -2px;
+.navbar-brand {
+    font-weight: 600;
+    letter-spacing: -0.5px;
 }
 
-.information h4 {
-    font-family: "Karla", Times, serif;
-    /*font-size: 12px;*/
-    /*font-style: italic;*/
-    font-weight: normal;
-    margin-top: -2px;
+/* App Container Layout */
+.app-container {
+    display: flex;
+    height: calc(100vh - 56px);
+    /* Full height minus navbar */
+    width: 100vw;
 }
 
-.information div.description,
-.information p.description {
-    font-family: 'Inconsolata', Arial, Helvetica, sans-serif;
-    font-size: 12px;
-    margin: 8px 0 0 0;
+/* Sidebar Panel */
+.sidebar-panel {
+    width: 350px;
+    background-color: var(--bg-sidebar);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+    overflow-y: auto;
+    z-index: 10;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
 }
 
-.information,
-.information,
-textarea {
-    font-family: 'Inconsolata', Arial, Helvetica, sans-serif;
-    font-size: 14px;
-    /*margin: 15px 0 0 0;*/
-    padding-bottom: 10px;
+/* Map Panel */
+.map-panel {
+    flex: 1;
+    position: relative;
+    background-color: #000;
 }
 
-.information h3.modes {
-    margin-top: 20px;
-}
-
-.information label.toggle-modes {
-    background-color: rgba(0, 0, 0, .2);
-    font-size: 10px;
-    text-transform: uppercase;
-    margin-top: 10px;
-    display: inline-block;
-    color: white;
-    text-shadow: 1px 1px 0 rgba(0, 0, 0, .1);
-    border-radius: 3px;
-    padding: 2px 8px;
-}
-
-.information ul.controls {
-    list-style-type: square;
-    margin: 15px 0 0 25px;
-}
-
-.information ul.controls li {
-    font-family: 'Karla', Arial, Helvetica, sans-serif;
-    font-size: 14px;
-}
-
-.information ul.controls li.disabled a {
-    color: rgba(0, 0, 0, .35);
-}
-
-.information ul.controls li a {
-    cursor: pointer;
-    transition: color .25s;
-}
-
-.information ul.controls li:not(.disabled) a:hover {
-    color: black;
-}
-
-.information ul.controls li span.only {
-    color: rgba(0, 0, 0, .25);
-    font-size: 10px;
-    margin-left: 5px;
-    cursor: pointer;
-    transition: color .25s;
-}
-
-.information ul.controls li span.only:hover {
-    color: rgba(0, 0, 0, .35);
-}
-
-.information span.current-mode {
-    color: rgba(0, 0, 0, .25);
-    font-size: 10px;
-    margin-left: 10px;
-}
-
-input[type="text"] {
-    display: block;
-    margin: 0;
+#cesiumContainer {
     width: 100%;
-    font-family: "Karla", sans-serif;
-    font-size: 14px;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    -webkit-box-shadow: none;
-    -moz-box-shadow: none;
-    box-shadow: none;
-    -webkit-border-radius: none;
-    -moz-border-radius: none;
-    -ms-border-radius: none;
-    -o-border-radius: none;
-    border-radius: none;
+    height: 100%;
 }
 
-input[type="text"]:focus {
-    outline: none;
+/* Utility Classes */
+.text-accent {
+    color: var(--accent-color) !important;
 }
 
+.text-mono {
+    font-family: var(--font-mono);
+}
 
-/* lists */
+.bg-accent {
+    background-color: var(--accent-color) !important;
+    color: #0f172a;
+    /* Dark text on bright accent */
+    font-weight: 600;
+}
 
+/* Cards (Glassmorphismish) */
+.card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    backdrop-filter: blur(5px);
+}
 
+.card-header {
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Buttons */
+.btn-primary {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #0f172a;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    box-shadow: var(--accent-glow);
+    transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+    background-color: #7dd3fc;
+    border-color: #7dd3fc;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.8);
+    transform: translateY(-1px);
+}
+
+/* Data Tables */
+.table {
+    color: var(--text-primary);
+}
+
+.table-hover tbody tr:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.table th,
+.table td {
+    border-color: var(--border-color);
+    padding: 0.75rem 0.5rem;
+}
+
+/* Spinner */
+.loading-spinner {
+    padding: 10px;
+    background: rgba(56, 189, 248, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+/* Hover Utilities */
+.hover-white:hover {
+    color: #fff !important;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-body);
+}
+
+::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}

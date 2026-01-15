@@ -62,10 +62,29 @@ const pollBlenderProcess = async (job) => {
 
     const aoi_query = tile38_client.intersectsQuery('observation').bounds(viewport[0], viewport[1], viewport[2], viewport[3]).detect('inside');
 
-    const flight_aoi_fence = aoi_query.executeFence((err, results) => {
+    const flight_aoi_fence = aoi_query.executeFence(async (err, results) => {
         if (err) {
             console.error("something went wrong! " + err);
         } else {
+            // Tile38 node driver doesn't support WITHFIELDS for fence queries.
+            // Fetch metadata from Redis implementation (id-metadata key)
+            if (results && results.id) {
+                try {
+                    const metadata_str = await redis_client.get(`${results.id}-metadata`);
+                    if (metadata_str) {
+                        const metadata = JSON.parse(metadata_str);
+                        if (results.object) {
+                            results.object.metadata = metadata;
+                        } else {
+                            // If object is missing (e.g. exit event), verify behavior. 
+                            // But for 'inside' it should be there.
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`Failed to fetch metadata for ${results.id}:`, e);
+                }
+            }
+
             sendStdMsg(room, {
                 'type': 'message',
                 "alert_type": "observation_in_aoi",
@@ -90,7 +109,7 @@ const pollBlenderProcess = async (job) => {
     const flights_url = `${base_url}/flight_stream/get_air_traffic/${session_id}?view=${viewport_str}`;
     console.debug(`Flights url: ${flights_url}`);
 
-    const fullproc = 30;
+    const fullproc = 300; // 300 iterations * 2s = 10 minutes of live updates
     for (let h = 0; h < fullproc; h++) {
         try {
             const blender_response = await axios_instance.get(flights_url);
