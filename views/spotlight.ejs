@@ -181,19 +181,56 @@
         });
       }
 
-      // Initialize Viewer with no default imagery
+      // ========== CESIUM ION ACCESS TOKEN ==========
+      // Using user's Cesium Ion token for Google Photorealistic 3D Tiles
+      Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlNzYzZDA0ZC0xMzM2LTRiZDYtOTlmYi00YWZlYWIyMmIzZDQiLCJpZCI6Mzc5MzIwLCJpYXQiOjE3Njg1MTI0NTV9.SFfIGeLNyHKRsAD8oJdDHpNibeSoxx_ISirSN1-xKdg";
+
+      // Initialize Viewer for Google Photorealistic 3D Tiles
       var viewer = new Cesium.Viewer('cesiumContainer', {
-        geocoder: false,
+        globe: false, // Disable globe for 3D tiles (required)
+        skyAtmosphere: new Cesium.SkyAtmosphere(), // Re-enable atmosphere
+        geocoder: Cesium.IonGeocodeProviderType.GOOGLE, // Use Google geocoder
         homeButton: false,
-        baseLayerPicker: false,
+        baseLayerPicker: false, // 3D tiles don't support imagery layers
         infoBox: false,
-        sceneModePicker: false,
+        sceneModePicker: false, // 2D/Columbus not supported for global 3D tiles
         animation: false,
         selectionIndicator: false,
         fullscreenButton: false,
         timeline: false,
-        navigationHelpButton: false,
-        imageryProvider: false // Explicitly disable constructor imagery to avoid issues
+        navigationHelpButton: false
+      });
+
+      // Add Google Photorealistic 3D Tiles (Asset ID: 2275207)
+      (async () => {
+        try {
+          const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(2275207);
+          viewer.scene.primitives.add(tileset);
+          console.log("Google Photorealistic 3D Tiles loaded successfully");
+        } catch (error) {
+          console.error("Failed to load 3D Tiles:", error);
+          // Fallback to 2D imagery if 3D tiles fail
+          try {
+            const esriImagery = new Cesium.UrlTemplateImageryProvider({
+              url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+              credit: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+            });
+            viewer.imageryLayers.addImageryProvider(esriImagery);
+            console.log("Fallback: Esri Imagery loaded");
+          } catch (e) {
+            console.error("Fallback imagery also failed", e);
+          }
+        }
+      })();
+
+      // Set default view to Irvine, CA
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(-117.8265, 33.6846, 2000), // Lower altitude for 3D effect
+        orientation: {
+          heading: Cesium.Math.toRadians(0),
+          pitch: Cesium.Math.toRadians(-45), // Angled view for 3D tiles
+          roll: 0
+        }
       });
 
       // Update Cockpit View every tick
@@ -202,10 +239,10 @@
           try {
             const entity = droneEntities.get(trackedDroneId);
             if (!entity || !entity.position) return;
-            
+
             const position = entity.position.getValue(clock.currentTime);
             if (!position) return;
-            
+
             // Check if orientation exists (some entities may not have it)
             let heading = 0, pitch = 0, roll = 0;
             if (entity.orientation) {
@@ -237,24 +274,6 @@
             console.warn('Cockpit camera error:', e);
           }
         }
-      });
-
-      // Use UrlTemplateImageryProvider (XYZ tiles) for maximum stability
-      // This bypasses ArcGisMapServer metadata requests which were crashing
-      try {
-        const esriImagery = new Cesium.UrlTemplateImageryProvider({
-          url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-          credit: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community'
-        });
-        viewer.imageryLayers.addImageryProvider(esriImagery);
-        console.log("Esri XYZ Imagery added manually");
-      } catch (err) {
-        console.error("Failed to add Esri Imagery", err);
-      }
-
-      // Set default view to Irvine, CA
-      viewer.camera.setView({
-        destination: Cesium.Cartesian3.fromDegrees(-117.8265, 33.6846, 5000) // 5km up
       });
 
       // Track drones by ID and their position history
