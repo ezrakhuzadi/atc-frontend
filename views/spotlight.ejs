@@ -386,6 +386,119 @@
       setInterval(fetchFlightPlans, 5000); // Fetch every 5s
       fetchFlightPlans(); // Initial fetch
 
+      // ========== CONFLICT VISUALIZATION ==========
+      const conflictEntities = new Map(); // conflict_id -> entity
+      let activeConflicts = [];
+
+      async function fetchConflicts() {
+        try {
+          const response = await fetch('http://localhost:3000/v1/conflicts');
+          if (response.ok) {
+            const conflicts = await response.json();
+            activeConflicts = conflicts;
+            renderConflicts(conflicts);
+          }
+        } catch (e) {
+          // ATC server might not be running - silently ignore
+        }
+      }
+
+      function renderConflicts(conflicts) {
+        // Remove old conflict entities that are no longer active
+        const currentConflictIds = new Set(conflicts.map(c => `${c.drone1_id}-${c.drone2_id}`));
+        for (const [id, entity] of conflictEntities) {
+          if (!currentConflictIds.has(id)) {
+            viewer.entities.remove(entity);
+            conflictEntities.delete(id);
+          }
+        }
+
+        // Add/update conflict lines
+        for (const conflict of conflicts) {
+          const conflictId = `${conflict.drone1_id}-${conflict.drone2_id}`;
+          
+          // Get drone positions
+          const drone1 = droneEntities.get(conflict.drone1_id);
+          const drone2 = droneEntities.get(conflict.drone2_id);
+          
+          if (!drone1 || !drone2) continue;
+          
+          // Get current positions from entities
+          const pos1 = drone1.position?.getValue(viewer.clock.currentTime);
+          const pos2 = drone2.position?.getValue(viewer.clock.currentTime);
+          
+          if (!pos1 || !pos2) continue;
+
+          // Color based on severity
+          let lineColor, lineWidth;
+          if (conflict.severity === 'critical') {
+            lineColor = Cesium.Color.RED;
+            lineWidth = 4;
+          } else if (conflict.severity === 'warning') {
+            lineColor = Cesium.Color.ORANGE;
+            lineWidth = 3;
+          } else {
+            lineColor = Cesium.Color.YELLOW;
+            lineWidth = 2;
+          }
+
+          if (conflictEntities.has(conflictId)) {
+            // Update existing line
+            const entity = conflictEntities.get(conflictId);
+            entity.polyline.positions = [pos1, pos2];
+          } else {
+            // Create new conflict line
+            const entity = viewer.entities.add({
+              id: `conflict-${conflictId}`,
+              polyline: {
+                positions: [pos1, pos2],
+                width: lineWidth,
+                material: new Cesium.PolylineGlowMaterialProperty({
+                  glowPower: 0.3,
+                  color: lineColor
+                })
+              },
+              description: `
+                <table class="cesium-infoBox-defaultTable">
+                  <tr><td>Drones:</td><td>${conflict.drone1_id} ↔ ${conflict.drone2_id}</td></tr>
+                  <tr><td>Distance:</td><td>${conflict.distance_m.toFixed(0)} m</td></tr>
+                  <tr><td>Severity:</td><td style="color: ${lineColor.toCssColorString()}">${conflict.severity.toUpperCase()}</td></tr>
+                  <tr><td>Time to Closest:</td><td>${conflict.time_to_closest.toFixed(1)} s</td></tr>
+                </table>
+              `
+            });
+            conflictEntities.set(conflictId, entity);
+            
+            console.log(`[CONFLICT] ${conflict.severity.toUpperCase()}: ${conflict.drone1_id} <-> ${conflict.drone2_id} (${conflict.distance_m.toFixed(0)}m)`);
+          }
+
+          // Update drone model colors based on conflict severity
+          if (conflict.severity === 'critical') {
+            if (drone1.model) drone1.model.silhouetteColor = Cesium.Color.RED;
+            if (drone2.model) drone2.model.silhouetteColor = Cesium.Color.RED;
+          } else if (conflict.severity === 'warning') {
+            if (drone1.model) drone1.model.silhouetteColor = Cesium.Color.ORANGE;
+            if (drone2.model) drone2.model.silhouetteColor = Cesium.Color.ORANGE;
+          }
+        }
+
+        // Reset non-conflicting drones to default color
+        const conflictingDrones = new Set();
+        conflicts.forEach(c => {
+          conflictingDrones.add(c.drone1_id);
+          conflictingDrones.add(c.drone2_id);
+        });
+        for (const [id, entity] of droneEntities) {
+          if (!conflictingDrones.has(id) && entity.model) {
+            entity.model.silhouetteColor = Cesium.Color.CYAN; // Default color
+          }
+        }
+      }
+
+      // Poll conflicts every 2 seconds
+      setInterval(fetchConflicts, 2000);
+      fetchConflicts(); // Initial fetch
+
       // Handle selection to show planned route & update camera
       viewer.selectedEntityChanged.addEventListener((entity) => {
         // Remove previous route
