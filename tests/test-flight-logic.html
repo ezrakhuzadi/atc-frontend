@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Safe Corridor Flight Logic - Test Suite v3</title>
+    <title>Safe Corridor Flight Logic - Test Suite v4</title>
 
     <!-- CesiumJS from Ion CDN -->
     <script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
@@ -18,7 +18,7 @@
         }
 
         body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-family: 'Segoe UI', system-ui, sans-serif;
             background: #0f172a;
             color: #e2e8f0;
             min-height: 100vh;
@@ -77,21 +77,15 @@
 
         button:hover {
             background: #0284c7;
-            transform: translateY(-1px);
         }
 
         button:disabled {
             background: #475569;
             cursor: not-allowed;
-            transform: none;
         }
 
         button.secondary {
             background: #334155;
-        }
-
-        button.secondary:hover {
-            background: #475569;
         }
 
         .status-bar {
@@ -100,7 +94,6 @@
             border-radius: 8px;
             display: flex;
             justify-content: space-between;
-            align-items: center;
             flex-wrap: wrap;
             gap: 10px;
         }
@@ -125,7 +118,6 @@
             color: #f59e0b;
         }
 
-        /* Console Output */
         #console {
             background: #1e293b;
             border: 1px solid #334155;
@@ -133,10 +125,9 @@
             padding: 16px;
             max-height: 500px;
             overflow-y: auto;
-            font-family: 'Fira Code', 'Consolas', monospace;
+            font-family: 'Consolas', monospace;
             font-size: 0.85rem;
             line-height: 1.6;
-            flex-grow: 1;
         }
 
         .log-entry {
@@ -173,18 +164,8 @@
             border-top: 2px solid #334155;
         }
 
-        .log-entry.header:first-child {
-            margin-top: 0;
-            border-top: none;
-        }
-
         .log-entry .timestamp {
             color: #64748b;
-            margin-right: 8px;
-        }
-
-        .log-entry .label {
-            font-weight: 600;
             margin-right: 8px;
         }
 
@@ -196,12 +177,10 @@
             content: "✗ ";
         }
 
-        /* Visible Cesium Container */
         #cesiumContainer {
             width: 100%;
             height: 450px;
             border-radius: 8px;
-            overflow: hidden;
             border: 2px solid #334155;
         }
 
@@ -210,10 +189,8 @@
             color: #64748b;
             margin-bottom: 4px;
             text-transform: uppercase;
-            letter-spacing: 1px;
         }
 
-        /* Summary Box */
         .summary {
             background: #1e293b;
             border-radius: 8px;
@@ -280,47 +257,34 @@
             font-size: 0.8rem;
             font-family: monospace;
         }
-
-        .debug-info div {
-            margin: 4px 0;
-        }
     </style>
 </head>
 
 <body>
-    <h1>🧪 Safe Corridor Flight Logic - Test Suite v3</h1>
-    <p class="subtitle">
-        v3: Uses clampToHeightMostDetailed for accurate 3D Tile building height detection
-    </p>
+    <h1>🧪 Safe Corridor Test Suite v4</h1>
+    <p class="subtitle">v4: Grid sampling (9 points) + precise building coordinates</p>
 
     <div class="main-layout">
         <div class="left-panel">
             <div class="controls">
                 <button id="runTestsBtn" onclick="runAllTests()">▶ Start Tests</button>
-                <button id="clearBtn" class="secondary" onclick="clearConsole()">Clear Console</button>
+                <button class="secondary" onclick="clearConsole()">Clear</button>
             </div>
 
             <div class="status-bar">
-                <div class="status-item">
-                    <span>Cesium:</span>
-                    <strong id="cesiumStatus" class="pending">Initializing...</strong>
+                <div class="status-item"><span>Cesium:</span> <strong id="cesiumStatus" class="pending">...</strong>
                 </div>
-                <div class="status-item">
-                    <span>OSM Buildings:</span>
-                    <strong id="osmStatus" class="pending">Not Loaded</strong>
-                </div>
-                <div class="status-item">
-                    <span>Tests:</span>
-                    <strong id="testStatus" class="pending">Ready</strong>
+                <div class="status-item"><span>OSM:</span> <strong id="osmStatus" class="pending">...</strong></div>
+                <div class="status-item"><span>Tests:</span> <strong id="testStatus" class="pending">Ready</strong>
                 </div>
             </div>
 
             <div id="console">
-                <div class="log-entry info">Waiting for test execution...</div>
+                <div class="log-entry info">Click "Start Tests"</div>
             </div>
 
             <div id="summary" class="summary">
-                <h3>Test Results</h3>
+                <h3>Results</h3>
                 <div class="summary-grid">
                     <div class="summary-stat passed">
                         <div class="value" id="passedCount">0</div>
@@ -339,60 +303,40 @@
         </div>
 
         <div class="right-panel">
-            <div class="viewer-label">Live Camera View (Debug)</div>
+            <div class="viewer-label">Camera View</div>
             <div id="cesiumContainer"></div>
             <div class="debug-info">
-                <div>Tileset Ready: <span id="tilesetReady">-</span></div>
-                <div>Tiles Loaded: <span id="tilesLoaded">-</span></div>
-                <div>Current Height: <span id="currentHeight">-</span></div>
+                <div>Tiles: <span id="tilesLoaded">-</span></div>
+                <div>Max Height: <span id="maxHeight">-</span></div>
+                <div>Building: <span id="buildingHeight">-</span></div>
             </div>
         </div>
     </div>
 
-    <!-- Import our safe-corridor module -->
     <script src="../static/js/safe-corridor.js"></script>
 
     <script>
-        // ========================================================================
-        // Test Configuration
-        // ========================================================================
-
         Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlNzYzZDA0ZC0xMzM2LTRiZDYtOTlmYi00YWZlYWIyMmIzZDQiLCJpZCI6Mzc5MzIwLCJpYXQiOjE3Njg1MTI0NTV9.SFfIGeLNyHKRsAD8oJdDHpNibeSoxx_ISirSN1-xKdg";
 
-        // Increased timing for more reliable tile loading
-        const CAMERA_ALTITUDE_M = 200;    // Lower altitude = more detailed tiles
-        const CAMERA_SETTLE_MS = 2000;    // Time for camera to settle
-        const TILE_LOAD_MAX_MS = 8000;    // Max wait for tiles
-        const BETWEEN_TESTS_MS = 1000;    // Pause between tests
-
-        // Global state
-        let viewer = null;
-        let osmTileset = null;
+        let viewer = null, osmTileset = null;
         let testsRunning = false;
         let testResults = { passed: 0, failed: 0, total: 0 };
 
-        // ========================================================================
-        // Console Logging
-        // ========================================================================
-
-        function log(message, type = 'info') {
-            const consoleEl = document.getElementById('console');
-            const entry = document.createElement('div');
-            entry.className = `log-entry ${type}`;
-
-            const timestamp = new Date().toLocaleTimeString();
-            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
-
-            consoleEl.appendChild(entry);
-            consoleEl.scrollTop = consoleEl.scrollHeight;
+        function log(msg, type = 'info') {
+            const el = document.getElementById('console');
+            const e = document.createElement('div');
+            e.className = `log-entry ${type}`;
+            e.innerHTML = `<span class="timestamp">[${new Date().toLocaleTimeString()}]</span> ${msg}`;
+            el.appendChild(e);
+            el.scrollTop = el.scrollHeight;
         }
 
-        function logHeader(message) {
-            const consoleEl = document.getElementById('console');
-            const entry = document.createElement('div');
-            entry.className = 'log-entry header';
-            entry.textContent = message;
-            consoleEl.appendChild(entry);
+        function logHeader(msg) {
+            const el = document.getElementById('console');
+            const e = document.createElement('div');
+            e.className = 'log-entry header';
+            e.textContent = msg;
+            el.appendChild(e);
         }
 
         function clearConsole() {
@@ -401,397 +345,252 @@
             testResults = { passed: 0, failed: 0, total: 0 };
         }
 
-        function updateStatus(id, text, success = true) {
+        function updateStatus(id, text, ok = true) {
             const el = document.getElementById(id);
             el.textContent = text;
-            el.className = success ? '' : 'error';
+            el.className = ok ? '' : 'error';
         }
 
-        function updateDebug(info) {
-            if (info.tilesetReady !== undefined) {
-                document.getElementById('tilesetReady').textContent = info.tilesetReady;
-            }
-            if (info.tilesLoaded !== undefined) {
-                document.getElementById('tilesLoaded').textContent = info.tilesLoaded;
-            }
-            if (info.currentHeight !== undefined) {
-                document.getElementById('currentHeight').textContent = info.currentHeight;
-            }
-        }
+        function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        // ========================================================================
-        // Utility: Delay
-        // ========================================================================
+        async function waitForTiles(tileset, maxMs = 6000) {
+            const start = Date.now();
+            let lastCount = -1, stable = 0;
 
-        function delay(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        // ========================================================================
-        // Wait for OSM Tileset to fully load tiles at current view
-        // ========================================================================
-
-        async function waitForTilesetReady(tileset, maxWaitMs = TILE_LOAD_MAX_MS) {
-            const startTime = Date.now();
-
-            log(`⏳ Waiting for OSM tiles to load (max ${maxWaitMs / 1000}s)...`, 'info');
-
-            // Wait for initial ready
-            if (!tileset.ready) {
-                await tileset.readyPromise;
-            }
-
-            updateDebug({ tilesetReady: 'Yes' });
-
-            // Wait for tiles to load with progressive rendering
-            let lastLoadedCount = -1;
-            let stableFrames = 0;
-
-            while (Date.now() - startTime < maxWaitMs) {
-                // Force render
+            while (Date.now() - start < maxMs) {
                 viewer.scene.render();
+                const count = tileset.statistics?.numberOfTilesWithContentReady || 0;
+                document.getElementById('tilesLoaded').textContent = count;
 
-                // Count loaded tiles
-                const stats = tileset.statistics;
-                const loadedCount = stats ? stats.numberOfTilesWithContentReady : 0;
-
-                updateDebug({ tilesLoaded: loadedCount });
-
-                // Check if stable (no new tiles for several frames)
-                if (loadedCount === lastLoadedCount && loadedCount > 0) {
-                    stableFrames++;
-                    if (stableFrames >= 5) {
-                        log(`✓ Tiles stable: ${loadedCount} tiles loaded`, 'pass');
-                        return true;
-                    }
+                if (count === lastCount && count > 0) {
+                    stable++;
+                    if (stable >= 3) return true;
                 } else {
-                    stableFrames = 0;
+                    stable = 0;
                 }
-
-                lastLoadedCount = loadedCount;
+                lastCount = count;
                 await delay(200);
             }
-
-            log(`⚠️ Tile loading timeout. Loaded: ${lastLoadedCount} tiles`, 'warn');
             return false;
         }
 
-        // ========================================================================
-        // Cesium Initialization
-        // ========================================================================
-
         async function initCesium() {
-            try {
-                log('Initializing Cesium Viewer...', 'info');
+            log('Initializing Cesium...', 'info');
 
-                viewer = new Cesium.Viewer('cesiumContainer', {
-                    terrainProvider: await Cesium.createWorldTerrainAsync(),
-                    animation: false,
-                    timeline: false,
-                    baseLayerPicker: false,
-                    geocoder: false,
-                    homeButton: false,
-                    sceneModePicker: false,
-                    selectionIndicator: false,
-                    navigationHelpButton: false,
-                    infoBox: false,
-                    fullscreenButton: false,
-                    requestRenderMode: false
-                });
-
-                // Enable depth testing
-                viewer.scene.globe.depthTestAgainstTerrain = true;
-
-                updateStatus('cesiumStatus', 'Ready', true);
-                log('Cesium Viewer with terrain initialized', 'pass');
-
-                // Load OSM Buildings
-                log('Loading OSM Buildings tileset (Asset 96188)...', 'info');
-                updateStatus('osmStatus', 'Loading...', true);
-
-                osmTileset = await Cesium.Cesium3DTileset.fromIonAssetId(96188);
-                viewer.scene.primitives.add(osmTileset);
-                osmTileset.show = true;
-
-                // Wait for tileset to be ready
-                await osmTileset.readyPromise;
-
-                updateStatus('osmStatus', 'Ready', true);
-                updateDebug({ tilesetReady: 'Yes', tilesLoaded: 0 });
-                log('OSM Buildings tileset ready', 'pass');
-
-                return true;
-            } catch (error) {
-                updateStatus('cesiumStatus', 'Error', false);
-                log(`Cesium initialization failed: ${error.message}`, 'fail');
-                console.error(error);
-                return false;
-            }
-        }
-
-        // ========================================================================
-        // Camera Teleportation with aggressive tile loading
-        // ========================================================================
-
-        async function teleportAndLoadTiles(lat, lon) {
-            log(`📍 Teleporting to (${lat.toFixed(4)}, ${lon.toFixed(4)})`, 'info');
-
-            // Fly close to the ground to force high LOD tiles
-            viewer.camera.setView({
-                destination: Cesium.Cartesian3.fromDegrees(lon, lat, CAMERA_ALTITUDE_M),
-                orientation: {
-                    heading: 0,
-                    pitch: Cesium.Math.toRadians(-60), // Look down steeply
-                    roll: 0
-                }
+            viewer = new Cesium.Viewer('cesiumContainer', {
+                terrainProvider: await Cesium.createWorldTerrainAsync(),
+                animation: false, timeline: false, baseLayerPicker: false,
+                geocoder: false, homeButton: false, sceneModePicker: false,
+                selectionIndicator: false, navigationHelpButton: false,
+                infoBox: false, fullscreenButton: false
             });
 
-            // Force multiple render frames
-            for (let i = 0; i < 20; i++) {
-                viewer.scene.render();
-                await delay(100);
-            }
+            viewer.scene.globe.depthTestAgainstTerrain = true;
+            updateStatus('cesiumStatus', 'OK', true);
+            log('Cesium ready', 'pass');
 
-            // Wait for tiles to actually load
-            await waitForTilesetReady(osmTileset);
+            log('Loading OSM Buildings...', 'info');
+            osmTileset = await Cesium.Cesium3DTileset.fromIonAssetId(96188);
+            viewer.scene.primitives.add(osmTileset);
+            await osmTileset.readyPromise;
+            updateStatus('osmStatus', 'OK', true);
+            log('OSM Buildings ready', 'pass');
 
-            // Extra settle time
-            await delay(CAMERA_SETTLE_MS);
-
-            log('📷 Camera positioned, tiles loaded', 'pass');
+            return true;
         }
 
         // ========================================================================
-        // Height Sampling using clampToHeightMostDetailed (Alternative Method)
+        // GRID SAMPLING: Pick 9 points on screen to find max building height
         // ========================================================================
+        async function sampleGridHeight(lat, lon, altitude = 150) {
+            // Position camera directly above the point, looking straight down
+            viewer.camera.setView({
+                destination: Cesium.Cartesian3.fromDegrees(lon, lat, altitude),
+                orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 } // Straight down
+            });
 
-        async function sampleBuildingHeight(lat, lon) {
-            // Create a Cartesian3 position at ground level
-            const groundPosition = Cesium.Cartesian3.fromDegrees(lon, lat, 0);
+            // Render and wait for tiles
+            for (let i = 0; i < 10; i++) { viewer.scene.render(); await delay(100); }
+            await waitForTiles(osmTileset);
+            await delay(1500);
 
-            // Use clampToHeightMostDetailed which works better with 3D Tiles
-            try {
-                const clampedPositions = await viewer.scene.clampToHeightMostDetailed(
-                    [groundPosition],
-                    [osmTileset]
-                );
+            // Sample in a 3x3 grid across the view
+            const canvas = viewer.canvas;
+            const w = canvas.width, h = canvas.height;
+            const offsets = [
+                [0.35, 0.35], [0.5, 0.35], [0.65, 0.35],
+                [0.35, 0.5], [0.5, 0.5], [0.65, 0.5],
+                [0.35, 0.65], [0.5, 0.65], [0.65, 0.65]
+            ];
 
-                if (clampedPositions && clampedPositions.length > 0) {
-                    const clampedPos = clampedPositions[0];
-                    const cartographic = Cesium.Cartographic.fromCartesian(clampedPos);
-                    return cartographic.height;
+            let maxHeight = -Infinity;
+            let heights = [];
+
+            for (const [fx, fy] of offsets) {
+                const pos = viewer.scene.pickPosition(new Cesium.Cartesian2(w * fx, h * fy));
+                if (pos) {
+                    const carto = Cesium.Cartographic.fromCartesian(pos);
+                    if (carto && !isNaN(carto.height)) {
+                        heights.push(carto.height);
+                        maxHeight = Math.max(maxHeight, carto.height);
+                    }
                 }
-            } catch (e) {
-                log(`clampToHeight failed: ${e.message}`, 'warn');
             }
 
-            return 0;
-        }
+            log(`  Grid samples: ${heights.length}/9 valid, heights: [${heights.map(h => h.toFixed(0)).join(', ')}]`, 'info');
 
-        // ========================================================================
-        // Direct Height Test (bypasses safe-corridor.js for debugging)
-        // ========================================================================
-
-        async function directHeightTest(lat, lon, name) {
-            log(`🔬 Direct height sample: ${name}`, 'info');
-
-            // Teleport and load tiles
-            await teleportAndLoadTiles(lat, lon);
-
-            // Try multiple sampling methods
-            const groundPos = Cesium.Cartesian3.fromDegrees(lon, lat, 0);
-            const cartographic = Cesium.Cartographic.fromDegrees(lon, lat);
-
-            // Method 1: sampleHeightMostDetailed
-            let height1 = 0;
-            try {
-                const positions1 = [cartographic.clone()];
-                await viewer.scene.sampleHeightMostDetailed(positions1, [osmTileset]);
-                height1 = positions1[0].height || 0;
-                log(`  sampleHeightMostDetailed: ${height1.toFixed(1)}m`, height1 > 0 ? 'pass' : 'warn');
-            } catch (e) {
-                log(`  sampleHeightMostDetailed error: ${e.message}`, 'fail');
-            }
-
-            // Method 2: clampToHeightMostDetailed
-            let height2 = 0;
-            try {
-                const clamped = await viewer.scene.clampToHeightMostDetailed([groundPos], [osmTileset]);
-                if (clamped && clamped[0]) {
-                    const clampedCarto = Cesium.Cartographic.fromCartesian(clamped[0]);
-                    height2 = clampedCarto.height || 0;
-                }
-                log(`  clampToHeightMostDetailed: ${height2.toFixed(1)}m`, height2 > 0 ? 'pass' : 'warn');
-            } catch (e) {
-                log(`  clampToHeightMostDetailed error: ${e.message}`, 'fail');
-            }
-
-            // Method 3: Scene.pickPosition (requires picking rendered geometry)
-            let height3 = 0;
-            try {
-                // Pick from the center of the screen
-                const canvas = viewer.canvas;
-                const centerX = canvas.width / 2;
-                const centerY = canvas.height / 2;
-                const pickedPos = viewer.scene.pickPosition(new Cesium.Cartesian2(centerX, centerY));
-                if (pickedPos) {
-                    const pickedCarto = Cesium.Cartographic.fromCartesian(pickedPos);
-                    height3 = pickedCarto.height || 0;
-                }
-                log(`  pickPosition (screen center): ${height3.toFixed(1)}m`, height3 > 0 ? 'pass' : 'warn');
-            } catch (e) {
-                log(`  pickPosition error: ${e.message}`, 'fail');
-            }
-
-            // Get terrain height for reference
+            // Get terrain height
             let terrainHeight = 0;
             try {
-                const terrainResults = await Cesium.sampleTerrainMostDetailed(
+                const results = await Cesium.sampleTerrainMostDetailed(
                     viewer.terrainProvider,
                     [Cesium.Cartographic.fromDegrees(lon, lat)]
                 );
-                terrainHeight = terrainResults[0].height || 0;
-                log(`  Terrain height: ${terrainHeight.toFixed(1)}m`, 'info');
-            } catch (e) {
-                log(`  Terrain error: ${e.message}`, 'warn');
-            }
+                terrainHeight = results[0].height || 0;
+            } catch (e) { }
 
-            // Calculate building height above terrain
-            const maxSampledHeight = Math.max(height1, height2, height3);
-            const buildingHeight = maxSampledHeight - terrainHeight;
+            const buildingHeight = maxHeight > -Infinity ? (maxHeight - terrainHeight) : 0;
 
-            log(`  📊 Building height above terrain: ${buildingHeight.toFixed(1)}m`, buildingHeight > 10 ? 'pass' : 'warn');
-
-            updateDebug({ currentHeight: `${maxSampledHeight.toFixed(1)}m (building: ${buildingHeight.toFixed(1)}m)` });
+            document.getElementById('maxHeight').textContent = maxHeight > -Infinity ? maxHeight.toFixed(1) + 'm' : 'N/A';
+            document.getElementById('buildingHeight').textContent = buildingHeight.toFixed(1) + 'm';
 
             return {
-                heightAboveEllipsoid: maxSampledHeight,
-                terrainHeight: terrainHeight,
-                buildingHeight: buildingHeight
+                maxHeight: maxHeight > -Infinity ? maxHeight : 0,
+                terrainHeight,
+                buildingHeight: Math.max(0, buildingHeight)
             };
         }
 
         // ========================================================================
-        // Test Runner
+        // TEST RUNNER
         // ========================================================================
-
-        async function runTest(name, lat, lon, expectedMinBuildingHeight) {
+        async function runTest(name, lat, lon, expected) {
             testResults.total++;
             logHeader(`TEST: ${name}`);
+            log(`Location: (${lat.toFixed(5)}, ${lon.toFixed(5)})`, 'info');
 
             try {
-                const result = await directHeightTest(lat, lon, name);
+                const result = await sampleGridHeight(lat, lon);
 
-                const passed = result.buildingHeight >= expectedMinBuildingHeight;
+                log(`Terrain: ${result.terrainHeight.toFixed(1)}m, Max: ${result.maxHeight.toFixed(1)}m`, 'info');
+                log(`📊 Building height: ${result.buildingHeight.toFixed(1)}m`, result.buildingHeight >= expected.min ? 'pass' : 'warn');
+
+                // Check pass/fail with tolerance
+                let passed = true;
+
+                if (expected.min !== undefined) {
+                    // For "expect buildings" tests
+                    if (result.buildingHeight < expected.min - 0.5) { // 0.5m tolerance
+                        passed = false;
+                        log(`  Expected >= ${expected.min}m, got ${result.buildingHeight.toFixed(1)}m`, 'fail');
+                    }
+                }
+
+                if (expected.max !== undefined) {
+                    // For "expect no buildings" tests
+                    if (result.buildingHeight > expected.max + 5) { // 5m tolerance for noise
+                        passed = false;
+                        log(`  Expected <= ${expected.max}m, got ${result.buildingHeight.toFixed(1)}m`, 'fail');
+                    }
+                }
 
                 if (passed) {
                     testResults.passed++;
-                    log(`<span class="label">PASSED</span> Building height ${result.buildingHeight.toFixed(1)}m >= ${expectedMinBuildingHeight}m`, 'pass');
+                    log(`<span class="label">PASSED</span>`, 'pass');
                 } else {
                     testResults.failed++;
-                    log(`<span class="label">FAILED</span> Building height ${result.buildingHeight.toFixed(1)}m < ${expectedMinBuildingHeight}m`, 'fail');
+                    log(`<span class="label">FAILED</span>`, 'fail');
                 }
 
-                await delay(BETWEEN_TESTS_MS);
+                await delay(500);
                 return passed;
 
-            } catch (error) {
+            } catch (e) {
                 testResults.failed++;
-                log(`<span class="label">ERROR</span> ${error.message}`, 'fail');
-                console.error(error);
+                log(`ERROR: ${e.message}`, 'fail');
                 return false;
             }
         }
 
         // ========================================================================
-        // Test Cases
+        // TEST CASES - Precise coordinates for each building
         // ========================================================================
-
         async function runAllTests() {
             if (testsRunning) return;
-
             testsRunning = true;
             document.getElementById('runTestsBtn').disabled = true;
             updateStatus('testStatus', 'Running...', true);
             clearConsole();
 
-            log('Starting Safe Corridor Test Suite v3...', 'info');
-            log('Using direct height sampling with multiple methods', 'info');
+            log('Safe Corridor Test Suite v4', 'info');
+            log('Grid sampling (9 points) for reliable building detection', 'info');
             log('================================================', 'info');
 
-            if (!viewer) {
-                const ready = await initCesium();
-                if (!ready) {
-                    testsRunning = false;
-                    document.getElementById('runTestsBtn').disabled = false;
-                    updateStatus('testStatus', 'Init Failed', false);
-                    return;
-                }
+            if (!viewer && !(await initCesium())) {
+                testsRunning = false;
+                document.getElementById('runTestsBtn').disabled = false;
+                return;
             }
 
-            // Test 1: Empire State Building (NYC) - Very tall, well-known
-            // Height: 443m (1,454 ft)
+            // =====================================================================
+            // PRECISE BUILDING COORDINATES (from OpenStreetMap / Google Maps)
+            // =====================================================================
+
+            // Salesforce Tower, SF - 326m tall
+            // Exact center: 37.78976, -122.39720
             await runTest(
-                'Empire State Building (NYC)',
-                40.7484, -73.9857,
-                100 // Expect at least 100m building height
+                'Salesforce Tower (SF) - 326m',
+                37.78976, -122.39720,
+                { min: 150 } // Expect at least 150m building
             );
 
-            // Test 2: Salesforce Tower (SF)
-            // Height: 326m (1,070 ft)
+            // Empire State Building, NYC - 443m tall
+            // Exact center: 40.74844, -73.98566
             await runTest(
-                'Salesforce Tower (SF)',
-                37.7897, -122.3972,
-                100
+                'Empire State Building (NYC) - 443m',
+                40.74844, -73.98566,
+                { min: 200 } // Expect at least 200m building
             );
 
-            // Test 3: Willis Tower (Chicago)
-            // Height: 442m (1,451 ft)
+            // Willis (Sears) Tower, Chicago - 442m tall
+            // Exact center: 41.87887, -87.63591
             await runTest(
-                'Willis Tower (Chicago)',
-                41.8789, -87.6359,
-                100
+                'Willis Tower (Chicago) - 442m',
+                41.87887, -87.63591,
+                { min: 200 } // Expect at least 200m building
             );
 
-            // Test 4: Open Park (UCI Aldrich Park) - No buildings
+            // One World Trade Center, NYC - 541m tall
+            // Exact center: 40.71274, -74.01338
+            await runTest(
+                'One World Trade Center (NYC) - 541m',
+                40.71274, -74.01338,
+                { min: 250 } // Expect at least 250m building
+            );
+
+            // Aldrich Park, UCI (Open field) - No buildings
             await runTest(
                 'Aldrich Park UCI (Open Field)',
-                33.6461, -117.8428,
-                0 // Expect near 0 building height (just terrain)
+                33.64610, -117.84280,
+                { min: 0, max: 10 } // Expect no significant buildings
             );
 
             // Summary
             log('================================================', 'info');
-            log(`Tests Complete: ${testResults.passed}/${testResults.total} passed`,
-                testResults.failed === 0 ? 'pass' : 'warn');
+            log(`Complete: ${testResults.passed}/${testResults.total} passed`, testResults.failed === 0 ? 'pass' : 'warn');
 
             document.getElementById('passedCount').textContent = testResults.passed;
             document.getElementById('failedCount').textContent = testResults.failed;
             document.getElementById('totalCount').textContent = testResults.total;
             document.getElementById('summary').classList.add('visible');
-
-            updateStatus('testStatus',
-                testResults.failed === 0 ? 'All Passed ✓' : `${testResults.failed} Failed`,
-                testResults.failed === 0
-            );
+            updateStatus('testStatus', testResults.failed === 0 ? 'All Passed ✓' : `${testResults.failed} Failed`, testResults.failed === 0);
 
             testsRunning = false;
             document.getElementById('runTestsBtn').disabled = false;
         }
 
-        // ========================================================================
-        // Initialization
-        // ========================================================================
-
-        window.addEventListener('load', async () => {
-            log('Page loaded. Click "Start Tests" to begin.', 'info');
-            log('v3: Direct height sampling with terrain subtraction', 'info');
-
-            if (typeof SafeCorridor !== 'undefined') {
-                log('SafeCorridor module loaded', 'pass');
-            } else {
-                log('SafeCorridor module not found (using direct methods)', 'warn');
-            }
+        window.addEventListener('load', () => {
+            log('Ready. Click "Start Tests" to begin.', 'info');
         });
     </script>
 </body>
