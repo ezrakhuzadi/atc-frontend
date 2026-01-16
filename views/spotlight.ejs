@@ -182,14 +182,80 @@
         });
       }
 
+      // ========== TIME OF DAY CONTROLS ==========
+      let currentTOD = 'realtime'; // Track current time of day mode
+
+      function setTimeOfDay(mode) {
+        currentTOD = mode;
+        console.log("Time of Day:", mode);
+
+        if (mode === 'realtime') {
+          // Use real-world current time
+          viewer.clock.currentTime = Cesium.JulianDate.now();
+          viewer.clock.shouldAnimate = true;
+          viewer.clock.multiplier = 1; // Real-time speed
+        } else if (mode === 'day') {
+          // Set to noon UTC (adjust for local if needed)
+          const noon = new Date();
+          noon.setUTCHours(12, 0, 0, 0);
+          viewer.clock.currentTime = Cesium.JulianDate.fromDate(noon);
+          viewer.clock.shouldAnimate = false;
+        } else if (mode === 'night') {
+          // Set to midnight UTC
+          const midnight = new Date();
+          midnight.setUTCHours(0, 0, 0, 0);
+          viewer.clock.currentTime = Cesium.JulianDate.fromDate(midnight);
+          viewer.clock.shouldAnimate = false;
+        }
+
+        // Update button styles for TOD buttons only
+        ['realtime', 'day', 'night'].forEach(m => {
+          const btn = document.getElementById(`tod-${m}-btn`);
+          if (btn) {
+            if (m === mode) {
+              btn.classList.remove('btn-outline-warning', 'btn-outline-secondary', 'btn-outline-light');
+              btn.classList.add('btn-accent');
+            } else {
+              btn.classList.remove('btn-accent');
+              if (m === 'day') btn.classList.add('btn-outline-warning');
+              else if (m === 'night') btn.classList.add('btn-outline-secondary');
+              else btn.classList.add('btn-outline-light');
+            }
+          }
+        });
+      }
+
+      function toggleGlobeLighting(enabled) {
+        if (viewer.scene.globe) {
+          viewer.scene.globe.enableLighting = enabled;
+          viewer.scene.globe.dynamicAtmosphereLighting = enabled;
+          viewer.scene.globe.dynamicAtmosphereLightingFromSun = enabled;
+        }
+        // Toggle sun/moon visibility and scene light
+        viewer.scene.sun.show = enabled;
+        viewer.scene.moon.show = enabled;
+
+        // Toggle between SunLight and default DirectionalLight
+        if (enabled) {
+          viewer.scene.light = new Cesium.SunLight();
+        } else {
+          // Use fixed directional light (noon-like)
+          viewer.scene.light = new Cesium.DirectionalLight({
+            direction: new Cesium.Cartesian3(0.0, 0.0, 1.0)
+          });
+        }
+        console.log("Globe lighting:", enabled);
+      }
+
       // ========== CESIUM ION ACCESS TOKEN ==========
       // Using user's Cesium Ion token for Google Photorealistic 3D Tiles
       Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlNzYzZDA0ZC0xMzM2LTRiZDYtOTlmYi00YWZlYWIyMmIzZDQiLCJpZCI6Mzc5MzIwLCJpYXQiOjE3Njg1MTI0NTV9.SFfIGeLNyHKRsAD8oJdDHpNibeSoxx_ISirSN1-xKdg";
 
-      // Initialize Viewer for Google Photorealistic 3D Tiles
+      // Initialize Viewer with globe for lighting effects
       var viewer = new Cesium.Viewer('cesiumContainer', {
-        globe: false, // Disable globe for 3D tiles (required)
-        skyAtmosphere: new Cesium.SkyAtmosphere(), // Re-enable atmosphere
+        // Enable globe for day/night lighting (Option A)
+        globe: new Cesium.Globe(Cesium.Ellipsoid.WGS84),
+        skyAtmosphere: new Cesium.SkyAtmosphere(), // Atmosphere effects
         geocoder: Cesium.IonGeocodeProviderType.GOOGLE, // Use Google geocoder
         homeButton: false,
         baseLayerPicker: false, // 3D tiles don't support imagery layers
@@ -199,8 +265,28 @@
         selectionIndicator: false,
         fullscreenButton: false,
         timeline: false,
-        navigationHelpButton: false
+        navigationHelpButton: false,
+        // Shadows for 3D effect (optional, can be heavy)
+        shadows: false
       });
+
+      // ========== ENABLE DYNAMIC LIGHTING ==========
+      // Sun-based lighting creates day/night cycle on the globe
+      viewer.scene.globe.enableLighting = true;
+      viewer.scene.sun.show = true;
+      viewer.scene.moon.show = true;
+
+      // Use sun-based directional light for 3D tiles
+      viewer.scene.light = new Cesium.SunLight();
+
+      // Enable dynamic atmosphere lighting based on sun position
+      viewer.scene.globe.dynamicAtmosphereLighting = true;
+      viewer.scene.globe.dynamicAtmosphereLightingFromSun = true;
+
+      // Set clock to real-time by default
+      viewer.clock.currentTime = Cesium.JulianDate.now();
+      viewer.clock.shouldAnimate = true;
+      viewer.clock.multiplier = 1;
 
       // Add Google Photorealistic 3D Tiles (Asset ID: 2275207)
       (async () => {
@@ -450,15 +536,27 @@
 
           if (!droneEntities.has(droneId)) {
             console.log(`Creating drone ${droneId} at ${validLat}, ${validLon}`);
+
+            // Calculate orientation quaternion from heading
+            const headingRad = Cesium.Math.toRadians(heading || 0);
+            const hpr = new Cesium.HeadingPitchRoll(headingRad, 0, 0);
+            const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+
             const entity = viewer.entities.add({
               id: droneId,
               name: `Drone ${droneId}`, // Title for InfoBox
               position: position, // Initial position
-              point: {
-                pixelSize: 14,
-                color: Cesium.Color.fromCssColorString('#0ea5e9'), // Sky-500
-                outlineColor: Cesium.Color.WHITE,
-                outlineWidth: 2
+              orientation: orientation,
+              // 3D Drone Model instead of point
+              model: {
+                uri: '/assets/models/drone.glb',
+                minimumPixelSize: 32,      // Minimum screen size
+                maximumScale: 200,         // Maximum world scale
+                scale: 0.5,                // Base scale (adjust based on model size)
+                silhouetteColor: Cesium.Color.CYAN,
+                silhouetteSize: 1.5,
+                colorBlendMode: Cesium.ColorBlendMode.HIGHLIGHT,
+                colorBlendAmount: 0.0
               },
               label: {
                 text: `${droneId}\n${(speed || 0).toFixed(1)} m/s`, // Multi-line label
@@ -468,7 +566,7 @@
                 backgroundColor: Cesium.Color.fromCssColorString('#0f172a').withAlpha(0.7), // Slate-900
                 backgroundPadding: new Cesium.Cartesian2(4, 4),
                 verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-                pixelOffset: new Cesium.Cartesian2(0, -20),
+                pixelOffset: new Cesium.Cartesian2(0, -40), // Raised for 3D model
                 distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000) // Hide when zoomed out
               },
               description: description,
@@ -485,6 +583,12 @@
           } else {
             const entity = droneEntities.get(droneId);
             entity.position = position;
+
+            // Update orientation based on heading
+            const headingRad = Cesium.Math.toRadians(heading || 0);
+            const hpr = new Cesium.HeadingPitchRoll(headingRad, 0, 0);
+            entity.orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+
             // Update dynamic properties
             entity.description = description;
             entity.label.text = `${droneId}\n${(speed || 0).toFixed(1)} m/s`;

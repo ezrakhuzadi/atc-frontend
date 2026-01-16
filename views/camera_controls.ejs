@@ -1,5 +1,5 @@
 <div id="camera-controls" class="card p-2"
-    style="position: absolute; top: 20px; right: 20px; z-index: 1000; width: 220px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255,255,255,0.1);">
+    style="position: absolute; top: 20px; left: 20px; z-index: 1000; width: 220px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255,255,255,0.1);">
     <h6 class="text-xs font-bold text-gray-400 uppercase mb-2 border-bottom border-gray-700 pb-1">Camera Mode</h6>
     <div class="d-grid gap-2">
         <button class="btn btn-sm btn-outline-light text-start" onclick="setCameraMode('orbit')">
@@ -12,6 +12,29 @@
             <i class="bi bi-arrows-move me-2"></i> Free Look
         </button>
     </div>
+
+    <h6 class="text-xs font-bold text-gray-400 uppercase mt-3 mb-2 border-bottom border-gray-700 pb-1">
+        <i class="bi bi-sun me-1"></i> Time of Day
+    </h6>
+    <div class="d-grid gap-2">
+        <button id="tod-realtime-btn" class="btn btn-sm btn-accent text-start" onclick="setTimeOfDay('realtime')">
+            <i class="bi bi-clock me-2"></i> Real-time
+        </button>
+        <button id="tod-day-btn" class="btn btn-sm btn-outline-warning text-start" onclick="setTimeOfDay('day')">
+            <i class="bi bi-brightness-high me-2"></i> Day (Noon)
+        </button>
+        <button id="tod-night-btn" class="btn btn-sm btn-outline-secondary text-start" onclick="setTimeOfDay('night')">
+            <i class="bi bi-moon-stars me-2"></i> Night
+        </button>
+    </div>
+    <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="enable-lighting-chk" checked
+            onchange="toggleGlobeLighting(this.checked)">
+        <label class="form-check-label text-xs text-secondary" for="enable-lighting-chk">
+            Enable Lighting
+        </label>
+    </div>
+
     <div class="mt-2 text-xs text-secondary text-center">
         Click a drone to track
     </div>

@@ -35,5 +35,6 @@ services:
       - tile38
     volumes:
       - ./views:/usr/src/app/views # Mount local views for live editing
+      - ./static:/usr/src/app/static # Mount static assets including 3D models
     ports:
       - "5050:5050"
