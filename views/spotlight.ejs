@@ -582,14 +582,18 @@
       // Poll geofences every 10 seconds
       setInterval(fetchGeofences, 10000);
       fetchGeofences(); // Initial fetch
+      // Track waypoint marker entities
+      let waypointMarkers = [];
 
       // Handle selection to show planned route & update camera
       viewer.selectedEntityChanged.addEventListener((entity) => {
-        // Remove previous route
+        // Remove previous route and waypoint markers
         if (selectedRouteEntity) {
           viewer.entities.remove(selectedRouteEntity);
           selectedRouteEntity = null;
         }
+        waypointMarkers.forEach(marker => viewer.entities.remove(marker));
+        waypointMarkers = [];
 
         if (entity && flightPlans.has(entity.id)) {
           // 1. Show Route
@@ -598,16 +602,54 @@
             Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.altitude_m)
           );
 
+          // Draw dashed route line
           selectedRouteEntity = viewer.entities.add({
             polyline: {
               positions: positions,
-              width: 2,
+              width: 3,
               material: new Cesium.PolylineDashMaterialProperty({
                 color: Cesium.Color.fromCssColorString('#10b981'), // Emerald-500
-                dashLength: 16.0
-              })
+                dashLength: 12.0
+              }),
+              clampToGround: false
             }
           });
+
+          // Add waypoint markers
+          plan.waypoints.forEach((wp, index) => {
+            const isStart = index === 0;
+            const isEnd = index === plan.waypoints.length - 1;
+
+            const color = isStart ? Cesium.Color.LIME :
+              isEnd ? Cesium.Color.CYAN : Cesium.Color.WHITE;
+            const label = isStart ? 'START' :
+              isEnd ? 'DEST' : `WP${index}`;
+
+            const marker = viewer.entities.add({
+              position: Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.altitude_m),
+              point: {
+                pixelSize: isStart || isEnd ? 12 : 8,
+                color: color,
+                outlineColor: Cesium.Color.BLACK,
+                outlineWidth: 2
+              },
+              label: {
+                text: `${label}\n${wp.altitude_m.toFixed(0)}m`,
+                font: '11px sans-serif',
+                fillColor: color,
+                outlineColor: Cesium.Color.BLACK,
+                outlineWidth: 2,
+                style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                pixelOffset: new Cesium.Cartesian2(0, -20),
+                verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+                showBackground: true,
+                backgroundColor: Cesium.Color.fromCssColorString('rgba(0,0,0,0.6)')
+              }
+            });
+            waypointMarkers.push(marker);
+          });
+
+          console.log(`[ROUTE] Showing ${plan.waypoints.length} waypoints for ${entity.id}`);
         }
 
         // 2. Update Camera Tracking
