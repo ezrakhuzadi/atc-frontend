@@ -88,6 +88,42 @@
           </div>
         </div>
 
+        <!-- System Health Dashboard -->
+        <div id="health-dashboard" class="card mt-3" style="font-size: 0.8rem;">
+          <div class="card-header d-flex justify-content-between align-items-center border-0 pb-0 pt-2 bg-transparent">
+            <h6 class="text-uppercase text-muted mb-0" style="font-size: 0.7rem; letter-spacing: 1px;">
+              <i class="bi bi-heart-pulse me-1"></i> System Health
+            </h6>
+            <span id="atc-status" class="badge bg-secondary">Checking...</span>
+          </div>
+          <div class="card-body p-2">
+            <table class="table table-borderless table-sm mb-0" style="font-size: 0.75rem;">
+              <tbody class="text-white">
+                <tr>
+                  <td class="text-muted">ATC Server:</td>
+                  <td id="health-atc" class="text-end text-warning">--</td>
+                </tr>
+                <tr>
+                  <td class="text-muted">Drones Active:</td>
+                  <td id="health-drones" class="text-end">0</td>
+                </tr>
+                <tr>
+                  <td class="text-muted">Conflicts:</td>
+                  <td id="health-conflicts" class="text-end text-danger">0</td>
+                </tr>
+                <tr>
+                  <td class="text-muted">Cmd Queue:</td>
+                  <td id="health-commands" class="text-end">0</td>
+                </tr>
+                <tr>
+                  <td class="text-muted">Geofences:</td>
+                  <td id="health-geofences" class="text-end">0</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- Footer Info -->
         <div class="mt-auto pt-3 border-top border-secondary text-muted small" style="font-size: 0.7rem;">
           <div class="d-flex justify-content-between align-items-center mb-2">
@@ -613,11 +649,13 @@
         // 2. Update Camera Tracking
         if (entity && droneEntities.has(entity.id)) {
           trackedDroneId = entity.id;
+          updateOperatorButtons(entity.id); // Enable command buttons
           if (cameraMode === 'orbit') {
             viewer.trackedEntity = entity;
           }
           // If Cockpit, tick loop picks up trackedDroneId automatically
         } else {
+          updateOperatorButtons(null); // Disable buttons when deselected
           trackedDroneId = null;
           if (cameraMode === 'orbit') {
             viewer.trackedEntity = undefined;
@@ -697,6 +735,244 @@
           }
         });
       }
+
+      // ========== SYSTEM HEALTH DASHBOARD ==========
+      async function updateHealthDashboard() {
+        const atcEl = document.getElementById('health-atc');
+        const dronesEl = document.getElementById('health-drones');
+        const conflictsEl = document.getElementById('health-conflicts');
+        const commandsEl = document.getElementById('health-commands');
+        const geofencesEl = document.getElementById('health-geofences');
+        const statusBadge = document.getElementById('atc-status');
+
+        try {
+          // Fetch all stats in parallel
+          const [dronesRes, conflictsRes, commandsRes, geofencesRes] = await Promise.all([
+            fetch('http://localhost:3000/v1/drones'),
+            fetch('http://localhost:3000/v1/conflicts'),
+            fetch('http://localhost:3000/v1/commands'),
+            fetch('http://localhost:3000/v1/geofences')
+          ]);
+
+          if (dronesRes.ok && conflictsRes.ok) {
+            atcEl.textContent = 'Connected';
+            atcEl.className = 'text-end text-success';
+            statusBadge.textContent = 'Online';
+            statusBadge.className = 'badge bg-success';
+
+            const drones = await dronesRes.json();
+            const conflicts = await conflictsRes.json();
+            const commands = commandsRes.ok ? await commandsRes.json() : [];
+            const geofences = geofencesRes.ok ? await geofencesRes.json() : [];
+
+            dronesEl.textContent = drones.length;
+            conflictsEl.textContent = conflicts.length;
+            conflictsEl.className = conflicts.length > 0 ? 'text-end text-danger fw-bold' : 'text-end text-muted';
+            commandsEl.textContent = commands.length;
+            geofencesEl.textContent = geofences.length;
+          } else {
+            throw new Error('API error');
+          }
+        } catch (e) {
+          atcEl.textContent = 'Offline';
+          atcEl.className = 'text-end text-danger';
+          statusBadge.textContent = 'Offline';
+          statusBadge.className = 'badge bg-danger';
+        }
+      }
+
+      // Poll health every 5 seconds
+      setInterval(updateHealthDashboard, 5000);
+      updateHealthDashboard(); // Initial check
+
+      // ========== USER ROUTE PLANNING ==========
+      let isPlanning = false;
+      const plannedWaypoints = [];
+      const planningEntities = [];
+      let planningPolyline = null;
+
+      function toggleRoutePlanning() {
+        isPlanning = !isPlanning;
+        const btn = document.getElementById('btn-plan-start');
+        const statusEl = document.getElementById('plan-status');
+
+        if (isPlanning) {
+          btn.className = 'btn btn-sm btn-info';
+          btn.innerHTML = '<i class="bi bi-cursor me-2"></i> Click Map...';
+          statusEl.textContent = 'Click on map to add waypoints';
+          viewer.canvas.style.cursor = 'crosshair';
+        } else {
+          btn.className = 'btn btn-sm btn-outline-info';
+          btn.innerHTML = '<i class="bi bi-plus-circle me-2"></i> Start Planning';
+          statusEl.textContent = `${plannedWaypoints.length} waypoints`;
+          viewer.canvas.style.cursor = 'default';
+        }
+      }
+
+      function clearPlannedRoute() {
+        plannedWaypoints.length = 0;
+        planningEntities.forEach(e => viewer.entities.remove(e));
+        planningEntities.length = 0;
+        if (planningPolyline) {
+          viewer.entities.remove(planningPolyline);
+          planningPolyline = null;
+        }
+        document.getElementById('plan-status').textContent = 'Cleared';
+        document.getElementById('btn-plan-submit').disabled = true;
+        isPlanning = false;
+        document.getElementById('btn-plan-start').className = 'btn btn-sm btn-outline-info';
+        document.getElementById('btn-plan-start').innerHTML = '<i class="bi bi-plus-circle me-2"></i> Start Planning';
+        viewer.canvas.style.cursor = 'default';
+      }
+
+      async function submitPlannedRoute() {
+        if (plannedWaypoints.length < 2) {
+          document.getElementById('plan-status').textContent = 'Need at least 2 waypoints';
+          return;
+        }
+
+        const droneId = prompt('Enter Drone ID for this flight plan:', 'PLAN001');
+        if (!droneId) return;
+
+        const waypoints = plannedWaypoints.map(wp => ({
+          lat: wp.lat,
+          lon: wp.lon,
+          altitude_m: 50.0,
+          speed_mps: 10.0
+        }));
+
+        try {
+          const response = await fetch('http://localhost:3000/v1/flights/plan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              drone_id: droneId,
+              waypoints: waypoints
+            })
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            document.getElementById('plan-status').textContent = `✓ Plan ${result.status}`;
+            console.log('[PLAN] Submitted:', result);
+            clearPlannedRoute();
+          } else {
+            document.getElementById('plan-status').textContent = '✗ Submit failed';
+          }
+        } catch (e) {
+          document.getElementById('plan-status').textContent = '✗ Connection error';
+        }
+      }
+
+      // Click handler for route planning
+      const planningHandler = new Cesium.ScreenSpaceEventHandler(viewer.canvas);
+      planningHandler.setInputAction((event) => {
+        if (!isPlanning) return;
+
+        const ray = viewer.camera.getPickRay(event.position);
+        const cartesian = viewer.scene.globe.pick(ray, viewer.scene);
+        if (!cartesian) return;
+
+        const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+        const lat = Cesium.Math.toDegrees(cartographic.latitude);
+        const lon = Cesium.Math.toDegrees(cartographic.longitude);
+        const alt = 50; // Default altitude
+
+        plannedWaypoints.push({ lat, lon, alt });
+
+        // Add marker
+        const marker = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+          point: { pixelSize: 10, color: Cesium.Color.LIME, outlineColor: Cesium.Color.BLACK, outlineWidth: 2 },
+          label: {
+            text: `WP${plannedWaypoints.length}`,
+            font: '10px sans-serif',
+            fillColor: Cesium.Color.LIME,
+            pixelOffset: new Cesium.Cartesian2(0, -15)
+          }
+        });
+        planningEntities.push(marker);
+
+        // Update/create polyline
+        if (planningPolyline) viewer.entities.remove(planningPolyline);
+        if (plannedWaypoints.length > 1) {
+          planningPolyline = viewer.entities.add({
+            polyline: {
+              positions: plannedWaypoints.map(wp => Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.alt)),
+              width: 3,
+              material: Cesium.Color.LIME.withAlpha(0.7)
+            }
+          });
+        }
+
+        document.getElementById('plan-status').textContent = `${plannedWaypoints.length} waypoints`;
+        document.getElementById('btn-plan-submit').disabled = plannedWaypoints.length < 2;
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      // ========== OPERATOR CONTROLS ==========
+      let selectedDroneId = null;
+
+      function updateOperatorButtons(droneId) {
+        selectedDroneId = droneId;
+        const holdBtn = document.getElementById('btn-hold');
+        const resumeBtn = document.getElementById('btn-resume');
+        const landBtn = document.getElementById('btn-land');
+        const statusEl = document.getElementById('cmd-status');
+
+        if (droneId && droneEntities.has(droneId)) {
+          holdBtn.disabled = false;
+          resumeBtn.disabled = false;
+          landBtn.disabled = false;
+          statusEl.textContent = `Target: ${droneId}`;
+        } else {
+          holdBtn.disabled = true;
+          resumeBtn.disabled = true;
+          landBtn.disabled = true;
+          statusEl.textContent = 'Select a drone first';
+        }
+      }
+
+      async function issueCommand(cmdType) {
+        if (!selectedDroneId) {
+          console.warn('No drone selected');
+          return;
+        }
+
+        const statusEl = document.getElementById('cmd-status');
+
+        let body;
+        if (cmdType === 'Hold') {
+          body = { drone_id: selectedDroneId, command_type: { Hold: { duration_secs: 30 } } };
+        } else if (cmdType === 'Resume') {
+          body = { drone_id: selectedDroneId, command_type: 'Resume' };
+        } else if (cmdType === 'Land') {
+          // Land = HOLD + altitude change to 0 (simplified for now)
+          body = { drone_id: selectedDroneId, command_type: { Hold: { duration_secs: 9999 } } };
+        }
+
+        try {
+          const response = await fetch('http://localhost:3000/v1/commands', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            statusEl.textContent = `✓ ${cmdType} sent!`;
+            console.log(`[CMD] Issued ${cmdType} to ${selectedDroneId}:`, result);
+          } else {
+            statusEl.textContent = `✗ Failed (${response.status})`;
+          }
+        } catch (e) {
+          statusEl.textContent = '✗ Connection error';
+          console.error('Command error:', e);
+        }
+      }
+
+      // ========== HEADING ARROWS ==========
+      const headingArrows = new Map(); // droneId -> arrow entity
+      const HEADING_ARROW_LENGTH_M = 100; // Arrow length in meters
 
       function updateDronePosition(droneId, lon, lat, altMeters, heading, speed) {
         try {
@@ -794,6 +1070,29 @@
           // Update droneData for flight list
           droneData.set(droneId, { lat: validLat, lon: validLon, alt: validAlt, speed, heading });
           updateFlightList();
+
+          // Update heading arrow
+          const headingRad = Cesium.Math.toRadians(heading || 0);
+          const arrowEndLat = validLat + (HEADING_ARROW_LENGTH_M / 111320) * Math.cos(headingRad);
+          const arrowEndLon = validLon + (HEADING_ARROW_LENGTH_M / (111320 * Math.cos(validLat * Math.PI / 180))) * Math.sin(headingRad);
+          const arrowEnd = Cesium.Cartesian3.fromDegrees(arrowEndLon, arrowEndLat, validAlt);
+
+          if (!headingArrows.has(droneId)) {
+            // Create heading arrow
+            const arrow = viewer.entities.add({
+              id: `arrow-${droneId}`,
+              polyline: {
+                positions: [position, arrowEnd],
+                width: 6,
+                material: new Cesium.PolylineArrowMaterialProperty(Cesium.Color.CYAN)
+              }
+            });
+            headingArrows.set(droneId, arrow);
+          } else {
+            // Update existing arrow
+            const arrow = headingArrows.get(droneId);
+            arrow.polyline.positions = [position, arrowEnd];
+          }
         } catch (error) {
           console.error("Error in updateDronePosition:", error);
         }
@@ -802,6 +1101,8 @@
       function clearAllDrones() {
         droneEntities.forEach((entity) => viewer.entities.remove(entity));
         droneEntities.clear();
+        headingArrows.forEach((entity) => viewer.entities.remove(entity));
+        headingArrows.clear();
         droneTrails.clear();
         droneData.clear();
         updateFlightList();

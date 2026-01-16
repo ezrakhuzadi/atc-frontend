@@ -38,4 +38,40 @@
     <div class="mt-2 text-xs text-secondary text-center">
         Click a drone to track
     </div>
+
+    <h6 class="text-xs font-bold text-gray-400 uppercase mt-3 mb-2 border-bottom border-gray-700 pb-1">
+        <i class="bi bi-joystick me-1"></i> Operator Controls
+    </h6>
+    <div class="d-grid gap-2">
+        <button id="btn-hold" class="btn btn-sm btn-warning text-dark" onclick="issueCommand('Hold')" disabled>
+            <i class="bi bi-pause-circle me-2"></i> HOLD
+        </button>
+        <button id="btn-resume" class="btn btn-sm btn-success" onclick="issueCommand('Resume')" disabled>
+            <i class="bi bi-play-circle me-2"></i> RESUME
+        </button>
+        <button id="btn-land" class="btn btn-sm btn-danger" onclick="issueCommand('Land')" disabled>
+            <i class="bi bi-arrow-down-circle me-2"></i> LAND
+        </button>
+    </div>
+    <div id="cmd-status" class="mt-2 text-xs text-secondary text-center">
+        Select a drone first
+    </div>
+
+    <h6 class="text-xs font-bold text-gray-400 uppercase mt-3 mb-2 border-bottom border-gray-700 pb-1">
+        <i class="bi bi-map me-1"></i> Route Planning
+    </h6>
+    <div class="d-grid gap-2">
+        <button id="btn-plan-start" class="btn btn-sm btn-outline-info" onclick="toggleRoutePlanning()">
+            <i class="bi bi-plus-circle me-2"></i> Start Planning
+        </button>
+        <button id="btn-plan-submit" class="btn btn-sm btn-success" onclick="submitPlannedRoute()" disabled>
+            <i class="bi bi-check-circle me-2"></i> Submit Route
+        </button>
+        <button id="btn-plan-clear" class="btn btn-sm btn-outline-secondary" onclick="clearPlannedRoute()">
+            <i class="bi bi-x-circle me-2"></i> Clear
+        </button>
+    </div>
+    <div id="plan-status" class="mt-2 text-xs text-secondary text-center">
+        Click to add waypoints
+    </div>
 </div>
