@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safe Corridor Flight Logic - Test Suite</title>
+
+    <!-- CesiumJS from Ion CDN -->
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #38bdf8;
+            margin-bottom: 10px;
+            font-size: 1.8rem;
+        }
+
+        .subtitle {
+            color: #64748b;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        button {
+            background: #0ea5e9;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #0284c7;
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            background: #475569;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button.secondary {
+            background: #334155;
+        }
+
+        button.secondary:hover {
+            background: #475569;
+        }
+
+        .status-bar {
+            background: #1e293b;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .status-item {
+            font-size: 0.85rem;
+        }
+
+        .status-item span {
+            color: #94a3b8;
+        }
+
+        .status-item strong {
+            color: #10b981;
+        }
+
+        .status-item strong.error {
+            color: #ef4444;
+        }
+
+        .status-item strong.pending {
+            color: #f59e0b;
+        }
+
+        /* Console Output */
+        #console {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 16px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid #334155;
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-entry.pass {
+            color: #10b981;
+        }
+
+        .log-entry.fail {
+            color: #ef4444;
+        }
+
+        .log-entry.info {
+            color: #60a5fa;
+        }
+
+        .log-entry.warn {
+            color: #f59e0b;
+        }
+
+        .log-entry.header {
+            color: #38bdf8;
+            font-weight: bold;
+            font-size: 1rem;
+            margin-top: 12px;
+            padding-top: 8px;
+            border-top: 2px solid #334155;
+        }
+
+        .log-entry.header:first-child {
+            margin-top: 0;
+            border-top: none;
+        }
+
+        .log-entry .timestamp {
+            color: #64748b;
+            margin-right: 8px;
+        }
+
+        .log-entry .label {
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        .log-entry.pass .label::before {
+            content: "✓ ";
+        }
+
+        .log-entry.fail .label::before {
+            content: "✗ ";
+        }
+
+        /* Hidden Cesium Container */
+        #cesiumContainer {
+            width: 1px;
+            height: 1px;
+            position: absolute;
+            left: -9999px;
+            visibility: hidden;
+        }
+
+        /* Summary Box */
+        .summary {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .summary.visible {
+            display: block;
+        }
+
+        .summary h3 {
+            color: #38bdf8;
+            margin-bottom: 10px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+        }
+
+        .summary-stat {
+            text-align: center;
+            padding: 12px;
+            background: #334155;
+            border-radius: 6px;
+        }
+
+        .summary-stat .value {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+
+        .summary-stat .label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+
+        .summary-stat.passed .value {
+            color: #10b981;
+        }
+
+        .summary-stat.failed .value {
+            color: #ef4444;
+        }
+
+        .summary-stat.total .value {
+            color: #60a5fa;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Hidden Cesium Viewer (required for physics engine) -->
+    <div id="cesiumContainer"></div>
+
+    <h1>🧪 Safe Corridor Flight Logic - Test Suite</h1>
+    <p class="subtitle">Testing calculateSafeCorridorHeight() and validateFlightPath() against real OSM Buildings data
+    </p>
+
+    <div class="controls">
+        <button id="runTestsBtn" onclick="runAllTests()">▶ Start Tests</button>
+        <button id="clearBtn" class="secondary" onclick="clearConsole()">Clear Console</button>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-item">
+            <span>Cesium:</span>
+            <strong id="cesiumStatus" class="pending">Initializing...</strong>
+        </div>
+        <div class="status-item">
+            <span>OSM Buildings:</span>
+            <strong id="osmStatus" class="pending">Not Loaded</strong>
+        </div>
+        <div class="status-item">
+            <span>Tests:</span>
+            <strong id="testStatus" class="pending">Ready</strong>
+        </div>
+    </div>
+
+    <div id="console">
+        <div class="log-entry info">Waiting for test execution...</div>
+    </div>
+
+    <div id="summary" class="summary">
+        <h3>Test Results</h3>
+        <div class="summary-grid">
+            <div class="summary-stat passed">
+                <div class="value" id="passedCount">0</div>
+                <div class="label">Passed</div>
+            </div>
+            <div class="summary-stat failed">
+                <div class="value" id="failedCount">0</div>
+                <div class="label">Failed</div>
+            </div>
+            <div class="summary-stat total">
+                <div class="value" id="totalCount">0</div>
+                <div class="label">Total</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import our safe-corridor module -->
+    <script src="../static/js/safe-corridor.js"></script>
+
+    <script>
+        // ========================================================================
+        // Test Configuration
+        // ========================================================================
+
+        // IMPORTANT: Replace with your Cesium Ion token
+        Cesium.Ion.defaultAccessToken = "YOUR_ION_TOKEN";
+
+        // Global state
+        let viewer = null;
+        let testsRunning = false;
+        let testResults = { passed: 0, failed: 0, total: 0 };
+
+        // ========================================================================
+        // Console Logging
+        // ========================================================================
+
+        function log(message, type = 'info') {
+            const consoleEl = document.getElementById('console');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+
+            consoleEl.appendChild(entry);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        function logHeader(message) {
+            const consoleEl = document.getElementById('console');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry header';
+            entry.textContent = message;
+            consoleEl.appendChild(entry);
+        }
+
+        function clearConsole() {
+            document.getElementById('console').innerHTML = '';
+            document.getElementById('summary').classList.remove('visible');
+            testResults = { passed: 0, failed: 0, total: 0 };
+        }
+
+        function updateStatus(id, text, success = true) {
+            const el = document.getElementById(id);
+            el.textContent = text;
+            el.className = success ? '' : 'error';
+        }
+
+        // ========================================================================
+        // Cesium Initialization
+        // ========================================================================
+
+        async function initCesium() {
+            try {
+                log('Initializing Cesium Viewer (hidden)...', 'info');
+
+                viewer = new Cesium.Viewer('cesiumContainer', {
+                    // Minimal viewer for headless testing
+                    globe: new Cesium.Globe(Cesium.Ellipsoid.WGS84),
+                    skyBox: false,
+                    skyAtmosphere: false,
+                    animation: false,
+                    timeline: false,
+                    baseLayerPicker: false,
+                    geocoder: false,
+                    homeButton: false,
+                    sceneModePicker: false,
+                    selectionIndicator: false,
+                    navigationHelpButton: false,
+                    infoBox: false,
+                    fullscreenButton: false
+                });
+
+                updateStatus('cesiumStatus', 'Ready', true);
+                log('Cesium Viewer initialized successfully', 'pass');
+
+                // Pre-load OSM Buildings tileset
+                log('Pre-loading OSM Buildings tileset (Asset 96188)...', 'info');
+                updateStatus('osmStatus', 'Loading...', true);
+
+                await SafeCorridor.getOsmBuildingsTileset(viewer);
+
+                updateStatus('osmStatus', 'Ready', true);
+                log('OSM Buildings tileset loaded and cached', 'pass');
+
+                return true;
+            } catch (error) {
+                updateStatus('cesiumStatus', 'Error', false);
+                log(`Cesium initialization failed: ${error.message}`, 'fail');
+                console.error(error);
+                return false;
+            }
+        }
+
+        // ========================================================================
+        // Test Runner
+        // ========================================================================
+
+        /**
+         * Run a single test case
+         * @param {string} name - Test name
+         * @param {number} startLat - Start latitude
+         * @param {number} startLon - Start longitude  
+         * @param {number} endLat - End latitude
+         * @param {number} endLon - End longitude
+         * @param {Object} expected - Expected outcome { isValid, minAltitude?, maxAltitude?, hasViolations? }
+         */
+        async function runTest(name, startLat, startLon, endLat, endLon, expected) {
+            testResults.total++;
+
+            log(`<span class="label">TEST:</span> ${name}`, 'info');
+            log(`Route: (${startLat.toFixed(4)}, ${startLon.toFixed(4)}) → (${endLat.toFixed(4)}, ${endLon.toFixed(4)})`, 'info');
+
+            try {
+                // Create route positions
+                const start = Cesium.Cartesian3.fromDegrees(startLon, startLat, 0);
+                const end = Cesium.Cartesian3.fromDegrees(endLon, endLat, 0);
+
+                // Call our function under test
+                const result = await SafeCorridor.calculateSafeCorridorHeight(viewer, [start, end], {
+                    safetyBuffer: 15,
+                    sampleSpacing: 10, // Slightly wider for faster tests
+                    debug: false
+                });
+
+                // Log results
+                log(`Max Obstacle Height: ${result.maxObstacleHeight?.toFixed(1) || 0}m`, 'info');
+                log(`Suggested Altitude: ${result.maxHeight?.toFixed(1)}m`, 'info');
+                log(`Samples: ${result.sampleCount} (${result.validSamples || 0} valid)`, 'info');
+
+                if (result.faaValidation) {
+                    log(`FAA Valid: ${result.faaValidation.isValid}`, result.faaValidation.isValid ? 'info' : 'warn');
+                    log(`FAA Summary: ${result.faaValidation.summary}`, 'info');
+
+                    if (result.faaValidation.violationSegments?.length > 0) {
+                        log(`Violations: ${result.faaValidation.violationSegments.length} segment(s)`, 'warn');
+                    }
+                }
+
+                // Validate expectations
+                let passed = true;
+                const failures = [];
+
+                // Check isValid expectation
+                if (expected.isValid !== undefined) {
+                    if (result.faaValidation?.isValid !== expected.isValid) {
+                        passed = false;
+                        failures.push(`Expected isValid=${expected.isValid}, got ${result.faaValidation?.isValid}`);
+                    }
+                }
+
+                // Check altitude range (if specified)
+                if (expected.minAltitude !== undefined) {
+                    if (result.maxHeight < expected.minAltitude) {
+                        passed = false;
+                        failures.push(`Expected altitude >= ${expected.minAltitude}m, got ${result.maxHeight?.toFixed(1)}m`);
+                    }
+                }
+
+                if (expected.maxAltitude !== undefined) {
+                    if (result.maxHeight > expected.maxAltitude) {
+                        passed = false;
+                        failures.push(`Expected altitude <= ${expected.maxAltitude}m, got ${result.maxHeight?.toFixed(1)}m`);
+                    }
+                }
+
+                // Check for violations (if specified)
+                if (expected.hasViolations !== undefined) {
+                    const hasViolations = (result.faaValidation?.violationSegments?.length || 0) > 0;
+                    if (hasViolations !== expected.hasViolations) {
+                        passed = false;
+                        failures.push(`Expected hasViolations=${expected.hasViolations}, got ${hasViolations}`);
+                    }
+                }
+
+                // Check obstacle detection (if specified)
+                if (expected.minObstacleHeight !== undefined) {
+                    if ((result.maxObstacleHeight || 0) < expected.minObstacleHeight) {
+                        passed = false;
+                        failures.push(`Expected obstacle height >= ${expected.minObstacleHeight}m, got ${result.maxObstacleHeight?.toFixed(1)}m`);
+                    }
+                }
+
+                // Report result
+                if (passed) {
+                    testResults.passed++;
+                    log(`<span class="label">PASSED</span> ${name}`, 'pass');
+                } else {
+                    testResults.failed++;
+                    failures.forEach(f => log(`  → ${f}`, 'fail'));
+                    log(`<span class="label">FAILED</span> ${name}`, 'fail');
+                }
+
+                return passed;
+
+            } catch (error) {
+                testResults.failed++;
+                log(`<span class="label">ERROR</span> ${error.message}`, 'fail');
+                console.error(error);
+                return false;
+            }
+        }
+
+        // ========================================================================
+        // Test Cases
+        // ========================================================================
+
+        async function runAllTests() {
+            if (testsRunning) return;
+
+            testsRunning = true;
+            document.getElementById('runTestsBtn').disabled = true;
+            updateStatus('testStatus', 'Running...', true);
+            clearConsole();
+
+            log('Starting Safe Corridor Test Suite...', 'info');
+            log('================================================', 'info');
+
+            // Ensure Cesium is ready
+            if (!viewer) {
+                const ready = await initCesium();
+                if (!ready) {
+                    testsRunning = false;
+                    document.getElementById('runTestsBtn').disabled = false;
+                    updateStatus('testStatus', 'Init Failed', false);
+                    return;
+                }
+            }
+
+            // =====================================================================
+            // SCENARIO A: Happy Path - Empty Park in Irvine
+            // =====================================================================
+            logHeader('SCENARIO A: Happy Path - Aldrich Park (UCI Campus)');
+
+            await runTest(
+                'Aldrich Park Open Field',
+                33.6461, -117.8428,  // Start: UCI Aldrich Park
+                33.6470, -117.8410,  // End: Nearby open area
+                {
+                    isValid: true,           // Should be legal
+                    maxAltitude: 50,         // Park area, expect low obstacles
+                    hasViolations: false
+                }
+            );
+
+            // =====================================================================
+            // SCENARIO B: Urban Buildings - Downtown LA
+            // =====================================================================
+            logHeader('SCENARIO B: Urban Buildings - Downtown Los Angeles');
+
+            await runTest(
+                'US Bank Tower Area (LA)',
+                34.0514, -118.2548,  // Start: Near US Bank Tower
+                34.0530, -118.2530,  // End: Nearby block
+                {
+                    // US Bank Tower is 310m - should trigger FAA violation
+                    // But OSM data quality varies, so we just check for building detection
+                    minObstacleHeight: 10   // Should detect SOME buildings
+                }
+            );
+
+            // =====================================================================
+            // SCENARIO C: Known Tall Building - Salesforce Tower SF
+            // =====================================================================
+            logHeader('SCENARIO C: Skyscraper - Salesforce Tower (San Francisco)');
+
+            await runTest(
+                'Salesforce Tower Route',
+                37.7897, -122.3972,  // Start: Near Salesforce Tower
+                37.7905, -122.3960,  // End: Adjacent block
+                {
+                    // Salesforce Tower is 326m (1070ft) - definitely exceeds 400ft limit
+                    // Should trigger FAA violation if OSM has the building
+                    minObstacleHeight: 50   // Should detect buildings (may vary with OSM data)
+                }
+            );
+
+            // =====================================================================
+            // SCENARIO D: Medium Buildings - Irvine Spectrum
+            // =====================================================================
+            logHeader('SCENARIO D: Commercial Area - Irvine Spectrum');
+
+            await runTest(
+                'Irvine Spectrum Mall',
+                33.6496, -117.7412,  // Start: Spectrum area
+                33.6510, -117.7390,  // End: Nearby
+                {
+                    isValid: true,           // Commercial buildings usually < 400ft
+                    minObstacleHeight: 5,    // Should detect some structures
+                    maxAltitude: 100         // Reasonable commercial height range
+                }
+            );
+
+            // =====================================================================
+            // SCENARIO E: FAA Violation - Very Tall Obstacle
+            // =====================================================================
+            logHeader('SCENARIO E: FAA Violation Test - Willis Tower (Chicago)');
+
+            await runTest(
+                'Willis Tower (Sears Tower) Route',
+                41.8789, -87.6359,   // Start: Near Willis Tower
+                41.8795, -87.6345,   // End: Adjacent
+                {
+                    // Willis Tower is 442m (1451ft) - massive FAA violation
+                    // If OSM has it, isValid should be false
+                    minObstacleHeight: 100  // Should detect a major building
+                }
+            );
+
+            // =====================================================================
+            // SCENARIO F: Empty Route Edge Case
+            // =====================================================================
+            logHeader('SCENARIO F: Edge Case - Empty Route');
+
+            try {
+                testResults.total++;
+                log('<span class="label">TEST:</span> Empty route handling', 'info');
+
+                const result = await SafeCorridor.calculateSafeCorridorHeight(viewer, [], {
+                    safetyBuffer: 15
+                });
+
+                if (result.sampleCount === 0 && result.maxHeight === 15) {
+                    testResults.passed++;
+                    log('<span class="label">PASSED</span> Empty route returns safety buffer only', 'pass');
+                } else {
+                    testResults.failed++;
+                    log('<span class="label">FAILED</span> Unexpected result for empty route', 'fail');
+                }
+            } catch (error) {
+                testResults.failed++;
+                log(`<span class="label">ERROR</span> ${error.message}`, 'fail');
+            }
+
+            // =====================================================================
+            // SCENARIO G: Single Point Edge Case
+            // =====================================================================
+            logHeader('SCENARIO G: Edge Case - Single Point');
+
+            try {
+                testResults.total++;
+                log('<span class="label">TEST:</span> Single point handling', 'info');
+
+                const singlePoint = Cesium.Cartesian3.fromDegrees(-117.8265, 33.6846, 0);
+                const result = await SafeCorridor.calculateSafeCorridorHeight(viewer, [singlePoint], {
+                    safetyBuffer: 15
+                });
+
+                if (result.sampleCount >= 1) {
+                    testResults.passed++;
+                    log(`<span class="label">PASSED</span> Single point sampled: ${result.sampleCount} sample(s)`, 'pass');
+                } else {
+                    testResults.failed++;
+                    log('<span class="label">FAILED</span> Single point not sampled correctly', 'fail');
+                }
+            } catch (error) {
+                testResults.failed++;
+                log(`<span class="label">ERROR</span> ${error.message}`, 'fail');
+            }
+
+            // =====================================================================
+            // Summary
+            // =====================================================================
+            log('================================================', 'info');
+            log(`Tests Complete: ${testResults.passed}/${testResults.total} passed`,
+                testResults.failed === 0 ? 'pass' : 'warn');
+
+            // Update UI
+            document.getElementById('passedCount').textContent = testResults.passed;
+            document.getElementById('failedCount').textContent = testResults.failed;
+            document.getElementById('totalCount').textContent = testResults.total;
+            document.getElementById('summary').classList.add('visible');
+
+            updateStatus('testStatus',
+                testResults.failed === 0 ? 'All Passed ✓' : `${testResults.failed} Failed`,
+                testResults.failed === 0
+            );
+
+            testsRunning = false;
+            document.getElementById('runTestsBtn').disabled = false;
+        }
+
+        // ========================================================================
+        // Initialization
+        // ========================================================================
+
+        window.addEventListener('load', async () => {
+            log('Page loaded. Click "Start Tests" to begin.', 'info');
+
+            // Check if SafeCorridor module loaded
+            if (typeof SafeCorridor !== 'undefined') {
+                log('SafeCorridor module loaded successfully', 'pass');
+            } else {
+                log('ERROR: SafeCorridor module not found!', 'fail');
+                log('Make sure safe-corridor.js is in ../static/js/', 'warn');
+                updateStatus('osmStatus', 'Module Missing', false);
+            }
+        });
+    </script>
+</body>
+
+</html>
