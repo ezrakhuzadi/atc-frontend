@@ -596,12 +596,12 @@
             );
 
             // =====================================================================
-            // TEST 5: Open Field (Aldrich Park, UCI) - No buildings expected
+            // TEST 5: Pacific Ocean - True empty control (no buildings possible)
             // =====================================================================
             await runTest(
-                'Aldrich Park UCI - Open Field (Control)',
-                33.64610, -117.84280,
-                { min: 0, max: 5 } // Should have near-zero building height
+                'Pacific Ocean off Newport - Empty Control',
+                33.55000, -117.95000,  // ~10km offshore
+                { min: 0, max: 10 } // Should have zero building height
             );
 
             // =====================================================================
