@@ -158,6 +158,9 @@
     </script>
 
     <script type="text/javascript">
+      // ATC Server URL - injected from environment config
+      const ATC_SERVER_URL = '<%= typeof atc_server_url !== "undefined" ? atc_server_url : "http://localhost:3000" %>';
+
       console.log("Spotlight script loaded");
       var socketHost = location.origin.replace(/^http/, 'ws');
       let clicked_entity = document.getElementById("clicked-entity-description");
@@ -366,15 +369,13 @@
             const position = entity.position.getValue(clock.currentTime);
             if (!position) return;
 
-            // Check if orientation exists (some entities may not have it)
-            let heading = 0, pitch = 0, roll = 0;
+            // Get heading from entity orientation or fallback to droneData
+            let heading = 0;
             if (entity.orientation) {
               const orientation = entity.orientation.getValue(clock.currentTime);
               if (orientation) {
                 const hpr = Cesium.HeadingPitchRoll.fromQuaternion(orientation);
                 heading = hpr.heading;
-                pitch = hpr.pitch;
-                roll = hpr.roll;
               }
             } else {
               // Fallback: Use droneData heading if available
@@ -382,8 +383,12 @@
               if (data && data.heading) {
                 heading = Cesium.Math.toRadians(data.heading);
               }
-              pitch = Cesium.Math.toRadians(-15); // Slight downward tilt for FPV
             }
+
+            // Always use fixed pitch for FPV (slight forward tilt) - don't use model pitch
+            // This fixes the issue where opposite-heading drones show ground/sky
+            const pitch = Cesium.Math.toRadians(-10); // 10 degree downward tilt
+            const roll = 0;
 
             viewer.camera.setView({
               destination: position,
@@ -408,7 +413,7 @@
       // Poll for flight plans
       async function fetchFlightPlans() {
         try {
-          const response = await fetch('http://localhost:3000/v1/flights');
+          const response = await fetch(ATC_SERVER_URL + '/v1/flights');
           if (response.ok) {
             const plans = await response.json();
             plans.forEach(plan => {
@@ -428,7 +433,7 @@
 
       async function fetchConflicts() {
         try {
-          const response = await fetch('http://localhost:3000/v1/conflicts');
+          const response = await fetch(ATC_SERVER_URL + '/v1/conflicts');
           if (response.ok) {
             const conflicts = await response.json();
             activeConflicts = conflicts;
@@ -540,7 +545,7 @@
 
       async function fetchGeofences() {
         try {
-          const response = await fetch('http://localhost:3000/v1/geofences');
+          const response = await fetch(ATC_SERVER_URL + '/v1/geofences');
           if (response.ok) {
             const geofences = await response.json();
             renderGeofences(geofences);
@@ -748,10 +753,10 @@
         try {
           // Fetch all stats in parallel
           const [dronesRes, conflictsRes, commandsRes, geofencesRes] = await Promise.all([
-            fetch('http://localhost:3000/v1/drones'),
-            fetch('http://localhost:3000/v1/conflicts'),
-            fetch('http://localhost:3000/v1/commands'),
-            fetch('http://localhost:3000/v1/geofences')
+            fetch(ATC_SERVER_URL + '/v1/drones'),
+            fetch(ATC_SERVER_URL + '/v1/conflicts'),
+            fetch(ATC_SERVER_URL + '/v1/commands'),
+            fetch(ATC_SERVER_URL + '/v1/geofences')
           ]);
 
           if (dronesRes.ok && conflictsRes.ok) {
@@ -842,7 +847,7 @@
         }));
 
         try {
-          const response = await fetch('http://localhost:3000/v1/flights/plan', {
+          const response = await fetch(ATC_SERVER_URL + '/v1/flights/plan', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -952,7 +957,7 @@
         }
 
         try {
-          const response = await fetch('http://localhost:3000/v1/commands', {
+          const response = await fetch(ATC_SERVER_URL + '/v1/commands', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)

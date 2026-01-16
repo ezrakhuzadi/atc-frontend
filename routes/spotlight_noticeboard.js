@@ -248,6 +248,7 @@ router.get("/spotlight", requiresAuth(), asyncMiddleware(async (req, response, n
       title: "Spotlight",
       userProfile,
       mapbox_key,
+      atc_server_url: process.env.ATC_SERVER_URL || 'http://localhost:3000',
       errors: {},
       data: { 'successful': 'NA' }
     });
@@ -296,6 +297,7 @@ router.get("/spotlight", requiresAuth(), asyncMiddleware(async (req, response, n
     title: "Spotlight",
     userProfile,
     mapbox_key,
+    atc_server_url: process.env.ATC_SERVER_URL || 'http://localhost:3000',
     errors: {},
     data: {
       'successful': 1,
