@@ -1,0 +1,1694 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Planner | ATC Drone Mission Control</title>
+
+    <!-- SEO -->
+    <meta name="description"
+        content="Flight planning and route validation for drone operations. Calculates 3D corridors with FAA Part 107 compliance.">
+
+    <!-- CesiumJS -->
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <style>
+        :root {
+            /* Slate Dark Theme */
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-blue: #38bdf8;
+            --accent-cyan: #22d3ee;
+            --accent-green: #10b981;
+            --accent-yellow: #fbbf24;
+            --accent-red: #ef4444;
+            --border: #475569;
+
+            /* Gradients */
+            --gradient-header: linear-gradient(135deg, #0ea5e9 0%, #8b5cf6 100%);
+            --gradient-button: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+
+            /* Sizing */
+            --sidebar-width: 420px;
+            --header-height: 60px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Layout */
+        .app-container {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+
+        .sidebar-header {
+            background: var(--gradient-header);
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sidebar-header .logo {
+            font-size: 1.8rem;
+        }
+
+        .sidebar-header h1 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: white;
+        }
+
+        .sidebar-header .subtitle {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 400;
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .card-header .icon {
+            font-size: 1rem;
+        }
+
+        /* Waypoint List */
+        .waypoint-list {
+            list-style: none;
+        }
+
+        .waypoint-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .waypoint-item .marker {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.7rem;
+            color: var(--bg-primary);
+        }
+
+        .waypoint-item .marker.start {
+            background: var(--accent-green);
+        }
+
+        .waypoint-item .marker.waypoint {
+            background: var(--accent-cyan);
+        }
+
+        .waypoint-item .coords {
+            flex: 1;
+            color: var(--text-secondary);
+        }
+
+        .waypoint-item .altitude {
+            color: var(--accent-yellow);
+            font-weight: 500;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 24px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .empty-state .icon {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--gradient-button);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);
+        }
+
+        .btn-success {
+            background: var(--accent-green);
+            color: white;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #059669;
+        }
+
+        .btn-danger {
+            background: transparent;
+            color: var(--accent-red);
+            border: 1px solid var(--accent-red);
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: var(--accent-red);
+            color: white;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .btn-group .btn {
+            flex: 1;
+        }
+
+        /* Status Panel */
+        .status-panel {
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-panel.pending {
+            background: var(--bg-secondary);
+            color: var(--text-muted);
+        }
+
+        .status-panel.calculating {
+            background: rgba(251, 191, 36, 0.15);
+            border: 1px solid var(--accent-yellow);
+            color: var(--accent-yellow);
+        }
+
+        .status-panel.valid {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .status-panel.invalid {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+        }
+
+        /* Validation Results */
+        .validation-result {
+            margin-top: 12px;
+        }
+
+        .validation-stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+        }
+
+        .validation-stat:last-child {
+            border-bottom: none;
+        }
+
+        .validation-stat .label {
+            color: var(--text-secondary);
+        }
+
+        .validation-stat .value {
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .validation-stat .value.good {
+            color: var(--accent-green);
+        }
+
+        .validation-stat .value.warning {
+            color: var(--accent-yellow);
+        }
+
+        .validation-stat .value.bad {
+            color: var(--accent-red);
+        }
+
+        /* Main Map Area */
+        .map-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #cesiumContainer {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Instructions Overlay */
+        .instructions-overlay {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 20px;
+            max-width: 320px;
+            z-index: 5;
+        }
+
+        .instructions-overlay h3 {
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+            color: var(--accent-cyan);
+        }
+
+        .instructions-overlay p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .instructions-overlay .step {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin: 8px 0;
+        }
+
+        .instructions-overlay .step-num {
+            width: 22px;
+            height: 22px;
+            background: var(--accent-blue);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        /* Quick Location Buttons */
+        .quick-locations {
+            position: absolute;
+            bottom: 16px;
+            left: 16px;
+            display: flex;
+            gap: 8px;
+            z-index: 5;
+        }
+
+        .quick-loc-btn {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-loc-btn:hover {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+        }
+
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            transition: opacity 0.3s;
+        }
+
+        .loading-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading-text {
+            margin-top: 16px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            padding: 12px 16px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn 0.3s ease;
+            min-width: 280px;
+        }
+
+        .toast.success {
+            border-color: var(--accent-green);
+        }
+
+        .toast.error {
+            border-color: var(--accent-red);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Google Maps-style Route Planner */
+        .route-planner {
+            position: relative;
+        }
+
+        .route-inputs {
+            position: relative;
+            padding-left: 36px;
+        }
+
+        .route-inputs::before {
+            content: '';
+            position: absolute;
+            left: 14px;
+            top: 24px;
+            bottom: 24px;
+            width: 2px;
+            background: repeating-linear-gradient(to bottom,
+                    var(--accent-cyan) 0,
+                    var(--accent-cyan) 4px,
+                    transparent 4px,
+                    transparent 8px);
+        }
+
+        .route-input-row {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .route-input-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .route-marker {
+            position: absolute;
+            left: -30px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: var(--bg-primary);
+            z-index: 1;
+        }
+
+        .route-marker.start {
+            background: var(--accent-green);
+        }
+
+        .route-marker.stop {
+            background: var(--accent-cyan);
+        }
+
+        .route-marker.end {
+            background: var(--accent-red);
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+        }
+
+        .route-marker.end span {
+            transform: rotate(45deg);
+        }
+
+        .route-input {
+            flex: 1;
+            padding: 12px 14px;
+            border-radius: 8px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .route-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.15);
+        }
+
+        .route-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .route-input.resolved {
+            border-color: var(--accent-green);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .route-input.error {
+            border-color: var(--accent-red);
+        }
+
+        .planner-select-group {
+            margin-top: 12px;
+        }
+
+        .planner-select-label {
+            display: block;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .planner-select-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .planner-select {
+            min-width: 0;
+        }
+
+        .planner-icon-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .planner-icon-btn:hover:not(:disabled) {
+            border-color: var(--accent-cyan);
+        }
+
+        .planner-icon-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .planner-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        .route-remove-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        .route-remove-btn:hover {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+        }
+
+        .add-stop-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            margin-top: 12px;
+            margin-left: 6px;
+            background: transparent;
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .add-stop-btn:hover {
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+            background: rgba(34, 211, 238, 0.05);
+        }
+
+        /* Autocomplete Dropdown */
+        .route-input-wrapper {
+            position: relative;
+            flex: 1;
+        }
+
+        .autocomplete-dropdown {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            right: 0;
+            background: rgba(15, 23, 42, 0.98);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            display: none;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .autocomplete-dropdown.show {
+            display: block;
+        }
+
+        .autocomplete-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            transition: background 0.15s;
+        }
+
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+
+        .autocomplete-item:hover {
+            background: rgba(34, 211, 238, 0.15);
+        }
+
+        .autocomplete-item .place-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .autocomplete-item .place-address {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .autocomplete-loading {
+            padding: 12px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .autocomplete-empty {
+            padding: 12px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Initializing Flight Planner...</div>
+    </div>
+
+    <div class="app-container">
+        <!-- Mission Control Sidebar -->
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <span class="logo">FP</span>
+                <div>
+                    <h1>Flight Planner</h1>
+                    <span class="subtitle">Pilot's Mission Control</span>
+                </div>
+            </header>
+
+            <div class="sidebar-content">
+                <!-- Route Planner Card (Google Maps Style) -->
+                <div class="card route-planner">
+                    <div class="card-header">
+                        <span class="icon">MAP</span>
+                        <span>Plan Your Route</span>
+                    </div>
+
+                    <div id="routeInputs" class="route-inputs">
+                        <!-- Start Location -->
+                        <div class="route-input-row" data-index="0">
+                            <span class="route-marker start">A</span>
+                            <div class="route-input-wrapper">
+                                <input type="text" class="route-input" placeholder="Start: Address or coordinates"
+                                    data-type="start" autocomplete="off">
+                                <div class="autocomplete-dropdown"></div>
+                            </div>
+                            <button class="route-remove-btn" onclick="clearSingleInput(this)" title="Clear">x</button>
+                        </div>
+
+                        <!-- Destination -->
+                        <div class="route-input-row" data-index="1">
+                            <span class="route-marker end"><span>B</span></span>
+                            <div class="route-input-wrapper">
+                                <input type="text" class="route-input" placeholder="Destination: Address or coordinates"
+                                    data-type="end" autocomplete="off">
+                                <div class="autocomplete-dropdown"></div>
+                            </div>
+                            <button class="route-remove-btn" onclick="clearSingleInput(this)" title="Clear">x</button>
+                        </div>
+                    </div>
+
+                    <button class="add-stop-btn" onclick="addStopInput()">
+                        + Add stop
+                    </button>
+
+                    <div class="btn-group" style="margin-top: 12px;">
+                        <button id="clearBtn" class="btn btn-danger" disabled>
+                            Clear All
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Validation Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="icon">FAA</span>
+                        <span>FAA Validation</span>
+                    </div>
+
+                    <div id="statusPanel" class="status-panel pending">
+                        Add at least 2 waypoints to calculate route
+                    </div>
+
+                    <div id="validationResult" class="validation-result" style="display: none;">
+                        <div class="validation-stat">
+                            <span class="label">Sample Points</span>
+                            <span id="samplePoints" class="value">-</span>
+                        </div>
+                        <div class="validation-stat">
+                            <span class="label">Max Obstacle</span>
+                            <span id="maxObstacle" class="value">-</span>
+                        </div>
+                        <div class="validation-stat">
+                            <span class="label">Suggested Altitude</span>
+                            <span id="suggestedAlt" class="value">-</span>
+                        </div>
+                        <div class="validation-stat">
+                            <span class="label">FAA Compliant</span>
+                            <span id="faaCompliant" class="value">-</span>
+                        </div>
+                        <div class="validation-stat">
+                            <span class="label">Geofences</span>
+                            <span id="geofenceStatus" class="value">-</span>
+                        </div>
+                        <div class="validation-stat">
+                            <span class="label">Path Type</span>
+                            <span id="pathType" class="value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="btn-group">
+                        <button id="calculateBtn" class="btn btn-primary" disabled>
+                            Calculate Route
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Submit Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <span class="icon">ATC</span>
+                        <span>Submit to ATC</span>
+                    </div>
+
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">
+                        Send your validated flight plan to the ATC server for tracking and deconfliction.
+                    </p>
+
+                    <div class="planner-select-group">
+                        <label class="planner-select-label" for="droneSelect">Assigned Drone</label>
+                        <div class="planner-select-row">
+                            <select id="droneSelect" class="route-input planner-select">
+                                <option value="">Auto (Planner ID)</option>
+                            </select>
+                            <button id="refreshDronesBtn" class="planner-icon-btn" title="Refresh drones" type="button">R</button>
+                        </div>
+                        <div id="droneSelectHint" class="planner-hint">Select a registered drone to bind this flight plan.</div>
+                    </div>
+
+                    <button id="submitBtn" class="btn btn-success" disabled>
+                        Submit Flight Plan
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Map Container -->
+        <main class="map-container">
+            <div id="cesiumContainer"></div>
+
+            <!-- Instructions Overlay -->
+            <div class="instructions-overlay">
+                <h3>How to Plan a Flight</h3>
+                <div class="step">
+                    <span class="step-num">1</span>
+                    <p>Click the map to place waypoints (A -> B -> ...)</p>
+                </div>
+                <div class="step">
+                    <span class="step-num">2</span>
+                    <p>Click "Calculate Route" to analyze obstacles & FAA compliance</p>
+                </div>
+                <div class="step">
+                    <span class="step-num">3</span>
+                    <p>If approved, click "Submit Flight Plan" to send to ATC</p>
+                </div>
+            </div>
+
+            <!-- Quick Location Buttons -->
+            <div class="quick-locations">
+                <button class="quick-loc-btn" onclick="FlightPlanner.flyTo(33.6846, -117.8265, 1500)">
+                    UCI Campus
+                </button>
+                <button class="quick-loc-btn" onclick="FlightPlanner.flyTo(33.6752, -117.8675, 1500)">
+                    John Wayne Airport
+                </button>
+                <button class="quick-loc-btn" onclick="FlightPlanner.flyTo(33.7489, -117.8730, 1500)">
+                    Irvine Spectrum
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Load Route Engine (Terrain Following Algorithm) -->
+    <script src="src/route-engine.js"></script>
+
+    <!-- Load Planner Module -->
+    <script src="src/planner.js"></script>
+
+    <script>
+        // ========================================================================
+        // Configuration
+        // ========================================================================
+
+        // REPLACE WITH YOUR CESIUM ION TOKEN
+        const CESIUM_ION_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlNzYzZDA0ZC0xMzM2LTRiZDYtOTlmYi00YWZlYWIyMmIzZDQiLCJpZCI6Mzc5MzIwLCJpYXQiOjE3Njg1MTI0NTV9.SFfIGeLNyHKRsAD8oJdDHpNibeSoxx_ISirSN1-xKdg';
+
+        // ========================================================================
+        // State
+        // ========================================================================
+
+        let currentRouteData = null;
+
+        // ========================================================================
+        // UI Helpers
+        // ========================================================================
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+
+        // Note: waypointList element removed - using route inputs UI instead
+        function updateWaypointList(waypoints) {
+            // Old waypointList element no longer exists
+            // Button state is managed by updateClearButtonState()
+            if (waypoints.length === 0) {
+                document.getElementById('clearBtn').disabled = true;
+                document.getElementById('calculateBtn').disabled = true;
+            } else {
+                document.getElementById('clearBtn').disabled = false;
+                document.getElementById('calculateBtn').disabled = waypoints.length < 2;
+            }
+        }
+
+        function updateValidationUI(result) {
+            const statusPanel = document.getElementById('statusPanel');
+            const validationResult = document.getElementById('validationResult');
+            const geofenceStatusEl = document.getElementById('geofenceStatus');
+
+            if (!result) {
+                statusPanel.className = 'status-panel pending';
+                statusPanel.textContent = 'Add at least 2 waypoints to calculate route';
+                validationResult.style.display = 'none';
+                if (geofenceStatusEl) {
+                    geofenceStatusEl.textContent = '-';
+                    geofenceStatusEl.className = 'value';
+                }
+                document.getElementById('submitBtn').disabled = true;
+                return;
+            }
+
+            // Update status
+            if (result.validation.isValid) {
+                statusPanel.className = 'status-panel valid';
+                statusPanel.textContent = result.validation.summary;
+            } else {
+                statusPanel.className = 'status-panel invalid';
+                statusPanel.textContent = result.validation.summary;
+            }
+
+            // Show validation stats
+            validationResult.style.display = 'block';
+            document.getElementById('samplePoints').textContent = result.samplePoints;
+
+            const maxObs = result.analysis.maxObstacleHeight;
+            document.getElementById('maxObstacle').textContent = `${maxObs.toFixed(1)}m`;
+            document.getElementById('maxObstacle').className = `value ${maxObs > 100 ? 'warning' : 'good'}`;
+
+            const suggested = result.validation.suggestedAltitude;
+            if (suggested !== null && suggested !== undefined) {
+                document.getElementById('suggestedAlt').textContent = `${suggested.toFixed(0)}m`;
+                document.getElementById('suggestedAlt').className = `value ${suggested > 121 ? 'bad' : 'good'}`;
+            } else {
+                document.getElementById('suggestedAlt').textContent = 'N/A (Reroute)';
+                document.getElementById('suggestedAlt').className = 'value bad';
+            }
+
+            const compliant = result.validation.faaCompliant;
+            document.getElementById('faaCompliant').textContent = compliant ? 'YES' : 'NO';
+            document.getElementById('faaCompliant').className = `value ${compliant ? 'good' : 'bad'}`;
+
+            const geofenceCheck = result.geofenceCheck;
+            let geofenceClear = false;
+            if (!geofenceCheck) {
+                geofenceStatusEl.textContent = 'PENDING';
+                geofenceStatusEl.className = 'value warning';
+            } else if (geofenceCheck.failed) {
+                geofenceStatusEl.textContent = 'CHECK FAILED';
+                geofenceStatusEl.className = 'value bad';
+            } else if (geofenceCheck.conflicts) {
+                const count = Array.isArray(geofenceCheck.conflicting_geofences)
+                    ? geofenceCheck.conflicting_geofences.length
+                    : 0;
+                geofenceStatusEl.textContent = count ? `BLOCKED (${count})` : 'BLOCKED';
+                geofenceStatusEl.className = 'value bad';
+            } else {
+                geofenceStatusEl.textContent = 'CLEAR';
+                geofenceStatusEl.className = 'value good';
+                geofenceClear = true;
+            }
+
+            // Show if path was optimized
+            const optimized = result.optimized || false;
+            document.getElementById('pathType').textContent = optimized ? 'Terrain Following' : 'Direct';
+            document.getElementById('pathType').className = `value ${optimized ? 'warning' : 'good'}`;
+
+            // Enable submit if valid
+            document.getElementById('submitBtn').disabled = !(result.validation.isValid && geofenceClear);
+        }
+
+        // ========================================================================
+        // Event Handlers
+        // ========================================================================
+
+        async function refreshGeofenceOverlay() {
+            if (!window.FlightPlanner || typeof window.FlightPlanner.refreshGeofences !== 'function') return;
+            try {
+                await window.FlightPlanner.refreshGeofences();
+            } catch (error) {
+                console.warn('[Planner] Geofence overlay refresh failed:', error);
+            }
+        }
+
+        async function refreshGeofenceCheck(routeData) {
+            if (!routeData || !window.FlightPlanner || typeof window.FlightPlanner.checkGeofenceRoute !== 'function') {
+                return;
+            }
+
+            routeData.geofenceCheck = null;
+            updateValidationUI(routeData);
+
+            try {
+                const response = await window.FlightPlanner.checkGeofenceRoute(routeData.waypoints || []);
+                routeData.geofenceCheck = response;
+            } catch (error) {
+                routeData.geofenceCheck = {
+                    conflicts: true,
+                    failed: true,
+                    message: error.message || 'Geofence check failed'
+                };
+            }
+
+            updateValidationUI(routeData);
+        }
+
+        // Callback when waypoint is added
+        window.onWaypointAdded = function (waypoints) {
+            updateWaypointList(waypoints);
+            currentRouteData = null;
+            updateValidationUI(null);
+            showToast(`Waypoint ${waypoints.length} added`, 'success');
+        };
+
+        // Callback when waypoints are cleared
+        window.onWaypointsCleared = function () {
+            updateWaypointList([]);
+            currentRouteData = null;
+            updateValidationUI(null);
+        };
+
+        // Callback when route is calculated
+        window.onRouteCalculated = function (result) {
+            currentRouteData = result;
+            updateValidationUI(result);
+            refreshGeofenceCheck(result);
+        };
+
+        // Callback when flight is submitted
+        window.onFlightSubmitted = function (result) {
+            showToast('Flight plan submitted to ATC!', 'success');
+        };
+
+        // Calculate button
+        document.getElementById('calculateBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('calculateBtn');
+            const statusPanel = document.getElementById('statusPanel');
+
+            btn.disabled = true;
+            btn.textContent = 'Calculating...';
+            statusPanel.className = 'status-panel calculating';
+            statusPanel.textContent = 'Analyzing route and obstacles...';
+
+            try {
+                await FlightPlanner.calculateRoute();
+                showToast('Route analysis complete', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+                updateValidationUI(null);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Calculate Route';
+            }
+        });
+
+        // Submit button
+        document.getElementById('submitBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('submitBtn');
+
+            if (!currentRouteData) {
+                showToast('Calculate route first', 'error');
+                return;
+            }
+            if (!currentRouteData.geofenceCheck || currentRouteData.geofenceCheck.conflicts || currentRouteData.geofenceCheck.failed) {
+                showToast('Geofence check not clear', 'error');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Submitting...';
+
+            try {
+                await FlightPlanner.submitToATC(currentRouteData);
+            } catch (error) {
+                showToast(`Submission failed: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Submit Flight Plan';
+            }
+        });
+
+        // Drone selector
+        const droneSelect = document.getElementById('droneSelect');
+        const refreshDronesBtn = document.getElementById('refreshDronesBtn');
+        const droneSelectHint = document.getElementById('droneSelectHint');
+
+        function applyDroneSelection() {
+            if (!droneSelect) return;
+            const selected = droneSelect.value || '';
+            if (window.FlightPlanner && typeof window.FlightPlanner.setSelectedDroneId === 'function') {
+                window.FlightPlanner.setSelectedDroneId(selected || null);
+            }
+        }
+
+        async function refreshDroneOptions() {
+            if (!droneSelect || !window.FlightPlanner || typeof window.FlightPlanner.listDrones !== 'function') return;
+
+            const previous = droneSelect.value;
+            droneSelect.disabled = true;
+            if (refreshDronesBtn) refreshDronesBtn.disabled = true;
+            if (droneSelectHint) droneSelectHint.textContent = 'Loading registered drones...';
+
+            try {
+                const drones = await window.FlightPlanner.listDrones();
+                const options = [`<option value="">Auto (Planner ID)</option>`];
+
+                (drones || []).forEach((drone) => {
+                    const id = drone?.drone_id || '';
+                    if (!id) return;
+                    const status = drone?.status ? ` (${String(drone.status).toLowerCase()})` : '';
+                    options.push(`<option value="${id}">${id}${status}</option>`);
+                });
+
+                droneSelect.innerHTML = options.join('');
+
+                if (previous && droneSelect.querySelector(`option[value="${previous}"]`)) {
+                    droneSelect.value = previous;
+                }
+
+                applyDroneSelection();
+
+                if (!drones || drones.length === 0) {
+                    if (droneSelectHint) {
+                        droneSelectHint.textContent = 'No registered drones found yet.';
+                    }
+                } else if (droneSelectHint) {
+                    droneSelectHint.textContent = 'Select a registered drone to bind this flight plan.';
+                }
+            } catch (error) {
+                console.warn('[Planner] Drone list failed:', error);
+                if (droneSelectHint) {
+                    droneSelectHint.textContent = 'Unable to load drones right now.';
+                }
+            } finally {
+                droneSelect.disabled = false;
+                if (refreshDronesBtn) refreshDronesBtn.disabled = false;
+            }
+        }
+
+        if (droneSelect) {
+            droneSelect.addEventListener('change', applyDroneSelection);
+        }
+        if (refreshDronesBtn) {
+            refreshDronesBtn.addEventListener('click', refreshDroneOptions);
+        }
+
+        // ========================================================================
+        // Google Maps-Style Route Planner with Autocomplete
+        // ========================================================================
+
+        let stopCounter = 0;
+        let routeInputData = new Map();
+        let activeInput = null;
+        let autocompleteService = null;
+        let suppressWaypointSync = false;
+
+        /**
+         * AutocompleteService - Handles Cesium Ion geocoding with debounce
+         */
+        class AutocompleteService {
+            constructor(viewer) {
+                this.viewer = viewer;
+                this.geocoder = new Cesium.IonGeocoderService({ scene: viewer.scene });
+                this.debounceTimer = null;
+                this.lastQuery = '';
+            }
+
+            async search(query) {
+                if (!query || query.length < 2) return [];
+
+                // Check if it looks like coordinates first
+                const coordMatch = query.trim().match(/^(-?\d+\.?\d*)\s*[,\s]\s*(-?\d+\.?\d*)$/);
+                if (coordMatch) {
+                    const lat = parseFloat(coordMatch[1]);
+                    const lon = parseFloat(coordMatch[2]);
+                    return [{
+                        displayName: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+                        destination: { latitude: lat, longitude: lon }
+                    }];
+                }
+
+                try {
+                    const results = await this.geocoder.geocode(query);
+                    return results.slice(0, 5); // Limit to 5 results
+                } catch (e) {
+                    console.warn('[Autocomplete] Geocode failed:', e);
+                    return [];
+                }
+            }
+
+            searchDebounced(query, callback, delay = 400) {
+                if (query === this.lastQuery) return;
+                this.lastQuery = query;
+
+                clearTimeout(this.debounceTimer);
+                this.debounceTimer = setTimeout(async () => {
+                    const results = await this.search(query);
+                    callback(results);
+                }, delay);
+            }
+
+            cancelSearch() {
+                clearTimeout(this.debounceTimer);
+            }
+        }
+
+        /**
+         * Show autocomplete dropdown
+         */
+        function showAutocomplete(input, results) {
+            const wrapper = input.closest('.route-input-wrapper');
+            const dropdown = wrapper.querySelector('.autocomplete-dropdown');
+
+            if (!results || results.length === 0) {
+                dropdown.innerHTML = '<div class="autocomplete-empty">No results found</div>';
+                dropdown.classList.add('show');
+                return;
+            }
+
+            dropdown.innerHTML = results.map((r, i) => {
+                const name = r.displayName.split(',')[0];
+                const address = r.displayName.split(',').slice(1).join(',').trim();
+                return `
+                    <div class="autocomplete-item" data-index="${i}">
+                        <div class="place-name">${name}</div>
+                        ${address ? `<div class="place-address">${address}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            // Store results for click handler
+            dropdown.dataset.results = JSON.stringify(results);
+            dropdown.classList.add('show');
+
+            // Add click handlers
+            dropdown.querySelectorAll('.autocomplete-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const idx = parseInt(item.dataset.index);
+                    const storedResults = JSON.parse(dropdown.dataset.results);
+                    selectAutocompleteResult(input, storedResults[idx]);
+                });
+            });
+        }
+
+        function hideAutocomplete(input) {
+            const wrapper = input.closest('.route-input-wrapper');
+            if (wrapper) {
+                const dropdown = wrapper.querySelector('.autocomplete-dropdown');
+                if (dropdown) dropdown.classList.remove('show');
+            }
+        }
+
+        function hideAllAutocompletes() {
+            document.querySelectorAll('.autocomplete-dropdown').forEach(d => d.classList.remove('show'));
+        }
+
+        /**
+         * Select an autocomplete result
+         */
+        async function selectAutocompleteResult(input, result) {
+            hideAutocomplete(input);
+
+            let lat, lon, name;
+
+            if (result.destination.latitude !== undefined) {
+                // Direct coordinates from result
+                lat = result.destination.latitude;
+                lon = result.destination.longitude;
+            } else if (result.destination instanceof Cesium.Cartesian3) {
+                // Cesium Cartesian3 position
+                const carto = Cesium.Cartographic.fromCartesian(result.destination);
+                lat = Cesium.Math.toDegrees(carto.latitude);
+                lon = Cesium.Math.toDegrees(carto.longitude);
+            } else if (result.destination instanceof Cesium.Rectangle) {
+                // Cesium Rectangle - use center
+                lat = Cesium.Math.toDegrees((result.destination.north + result.destination.south) / 2);
+                lon = Cesium.Math.toDegrees((result.destination.east + result.destination.west) / 2);
+            } else {
+                console.warn('[Autocomplete] Unknown destination format:', result.destination);
+                return;
+            }
+
+            name = result.displayName.split(',')[0];
+            input.value = name;
+            input.classList.add('resolved');
+            input.classList.remove('error');
+
+            routeInputData.set(input, { lat, lon, text: name, fullName: result.displayName });
+
+            await resyncWaypointsFromInputs();
+            FlightPlanner.flyTo(lat, lon, 1000);
+            showToast(name, 'success');
+            updateClearButtonState();
+        }
+
+        /**
+         * Handle input events for autocomplete
+         */
+        function setupInputAutocomplete(input) {
+            input.addEventListener('input', (e) => {
+                const query = e.target.value.trim();
+                if (query.length < 2) {
+                    hideAutocomplete(input);
+                    return;
+                }
+
+                // Show loading
+                const wrapper = input.closest('.route-input-wrapper');
+                const dropdown = wrapper.querySelector('.autocomplete-dropdown');
+                dropdown.innerHTML = '<div class="autocomplete-loading">Searching...</div>';
+                dropdown.classList.add('show');
+
+                autocompleteService.searchDebounced(query, (results) => {
+                    showAutocomplete(input, results);
+                });
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const wrapper = input.closest('.route-input-wrapper');
+                    const dropdown = wrapper.querySelector('.autocomplete-dropdown');
+                    const firstItem = dropdown.querySelector('.autocomplete-item');
+
+                    if (firstItem && dropdown.classList.contains('show')) {
+                        firstItem.click();
+                    } else {
+                        // Resolve manually if no dropdown
+                        resolveRouteInput(input);
+                    }
+                } else if (e.key === 'Escape') {
+                    hideAutocomplete(input);
+                } else if (e.key === 'Tab') {
+                    hideAutocomplete(input);
+                }
+            });
+
+            input.addEventListener('focus', () => {
+                activeInput = input;
+            });
+
+            input.addEventListener('blur', (e) => {
+                // Delay to allow click on dropdown
+                setTimeout(() => {
+                    hideAutocomplete(input);
+                }, 200);
+            });
+        }
+
+        /**
+         * Initialize autocomplete on all route inputs
+         */
+        function initializeAutocomplete() {
+            document.querySelectorAll('.route-input').forEach(input => {
+                setupInputAutocomplete(input);
+            });
+        }
+
+        async function resolveLocation(text) {
+            const trimmed = text.trim();
+            if (!trimmed) return null;
+            const coordMatch = trimmed.match(/^(-?\d+\.?\d*)\s*[,\s]\s*(-?\d+\.?\d*)$/);
+            if (coordMatch) {
+                return {
+                    lat: parseFloat(coordMatch[1]),
+                    lon: parseFloat(coordMatch[2]),
+                    name: `${parseFloat(coordMatch[1]).toFixed(4)}, ${parseFloat(coordMatch[2]).toFixed(4)}`
+                };
+            }
+            // Fallback to direct geocode
+            if (autocompleteService) {
+                const results = await autocompleteService.search(trimmed);
+                if (results.length > 0) {
+                    const r = results[0];
+                    let lat, lon;
+                    if (r.destination.latitude !== undefined) {
+                        lat = r.destination.latitude;
+                        lon = r.destination.longitude;
+                    } else if (r.destination instanceof Cesium.Cartesian3) {
+                        const carto = Cesium.Cartographic.fromCartesian(r.destination);
+                        lat = Cesium.Math.toDegrees(carto.latitude);
+                        lon = Cesium.Math.toDegrees(carto.longitude);
+                    } else if (r.destination instanceof Cesium.Rectangle) {
+                        lat = Cesium.Math.toDegrees((r.destination.north + r.destination.south) / 2);
+                        lon = Cesium.Math.toDegrees((r.destination.east + r.destination.west) / 2);
+                    }
+                    return { lat, lon, name: r.displayName.split(',')[0] };
+                }
+            }
+            return null;
+        }
+
+        async function resolveRouteInput(input) {
+            const text = input.value.trim();
+            if (!text) { input.classList.remove('resolved', 'error'); return; }
+            const existingData = routeInputData.get(input);
+            if (existingData && existingData.text === text) return;
+
+            input.classList.remove('resolved', 'error');
+            try {
+                const result = await resolveLocation(text);
+                if (result) {
+                    input.classList.add('resolved');
+                    routeInputData.set(input, { ...result, text });
+                    await resyncWaypointsFromInputs();
+                    FlightPlanner.flyTo(result.lat, result.lon, 1000);
+                    showToast(result.name, 'success');
+                } else {
+                    input.classList.add('error');
+                    showToast(`Could not find: "${text}"`, 'error');
+                }
+            } catch (e) {
+                input.classList.add('error');
+                showToast(`Error: ${e.message}`, 'error');
+            }
+            updateClearButtonState();
+        }
+
+        function addStopInput() {
+            stopCounter++;
+            const routeInputs = document.getElementById('routeInputs');
+            const endRow = routeInputs.querySelector('[data-type="end"]')?.closest('.route-input-row');
+            const stopRow = document.createElement('div');
+            stopRow.className = 'route-input-row';
+            stopRow.innerHTML = `
+                <span class="route-marker stop">${stopCounter}</span>
+                <div class="route-input-wrapper">
+                    <input type="text" class="route-input" placeholder="Stop: Address or coordinates" data-type="stop" autocomplete="off">
+                    <div class="autocomplete-dropdown"></div>
+                </div>
+                <button class="route-remove-btn" onclick="removeStopInput(this)" title="Remove">x</button>
+            `;
+            if (endRow) routeInputs.insertBefore(stopRow, endRow);
+            else routeInputs.appendChild(stopRow);
+
+            const newInput = stopRow.querySelector('.route-input');
+            setupInputAutocomplete(newInput);
+            newInput.focus();
+            updateMarkerLabels();
+        }
+
+        function removeStopInput(btn) {
+            const row = btn.closest('.route-input-row');
+            routeInputData.delete(row.querySelector('.route-input'));
+            row.remove();
+            updateMarkerLabels();
+            updateClearButtonState();
+            FlightPlanner.clearWaypoints(); // Re-sync with map
+            resyncWaypointsFromInputs();
+        }
+
+        /**
+         * Clear a single input (for Start/End inputs - not removed, just cleared)
+         */
+        function clearSingleInput(btn) {
+            const row = btn.closest('.route-input-row');
+            const input = row.querySelector('.route-input');
+            input.value = '';
+            input.classList.remove('resolved', 'error');
+            routeInputData.delete(input);
+            updateClearButtonState();
+            FlightPlanner.clearWaypoints();
+            resyncWaypointsFromInputs();
+        }
+
+        /**
+         * Re-sync FlightPlanner waypoints from resolved inputs
+         */
+        async function resyncWaypointsFromInputs() {
+            suppressWaypointSync = true;
+            FlightPlanner.clearWaypoints();
+            const inputs = Array.from(document.querySelectorAll('.route-input'));
+            for (const input of inputs) {
+                const data = routeInputData.get(input);
+                if (data && data.lat && data.lon) {
+                    await FlightPlanner.addWaypointByCoords(data.lat, data.lon);
+                }
+            }
+            suppressWaypointSync = false;
+        }
+
+        function updateMarkerLabels() {
+            const rows = document.querySelectorAll('.route-input-row');
+            rows.forEach((row, idx) => {
+                const marker = row.querySelector('.route-marker');
+                const input = row.querySelector('.route-input');
+                if (idx === 0) { marker.className = 'route-marker start'; marker.innerHTML = 'A'; input.dataset.type = 'start'; }
+                else if (idx === rows.length - 1) { marker.className = 'route-marker end'; marker.innerHTML = '<span>B</span>'; input.dataset.type = 'end'; }
+                else { marker.className = 'route-marker stop'; marker.innerHTML = idx.toString(); input.dataset.type = 'stop'; }
+            });
+        }
+
+        function updateClearButtonState() {
+            const hasInputs = routeInputData.size > 0;
+            document.getElementById('clearBtn').disabled = !hasInputs;
+            document.getElementById('calculateBtn').disabled = routeInputData.size < 2;
+        }
+
+        // Bi-directional: map click fills next empty input OR creates new stop
+        window.onWaypointAdded = function (waypoints) {
+            if (suppressWaypointSync) return;
+            const lastWp = waypoints[waypoints.length - 1];
+            const coordStr = `${lastWp.lat.toFixed(5)}, ${lastWp.lon.toFixed(5)}`;
+
+            // Try to fill an empty input first
+            for (const input of document.querySelectorAll('.route-input')) {
+                if (!input.value.trim() && !input.classList.contains('resolved')) {
+                    input.value = coordStr;
+                    input.classList.add('resolved');
+                    routeInputData.set(input, { lat: lastWp.lat, lon: lastWp.lon, text: coordStr });
+                    currentRouteData = null;
+                    updateValidationUI(null);
+                    updateClearButtonState();
+                    showToast(`Waypoint ${waypoints.length} added`, 'success');
+                    return;
+                }
+            }
+
+            // All inputs filled - add a new stop
+            addStopInput();
+            const newInputs = document.querySelectorAll('.route-input');
+            const newInput = newInputs[newInputs.length - 2]; // Second to last (before End)
+            newInput.value = coordStr;
+            newInput.classList.add('resolved');
+            routeInputData.set(newInput, { lat: lastWp.lat, lon: lastWp.lon, text: coordStr });
+
+            currentRouteData = null;
+            updateValidationUI(null);
+            updateClearButtonState();
+            showToast(`Stop ${waypoints.length - 1} added`, 'success');
+        };
+
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            console.log('[Planner] Clear All clicked');
+
+            // Clear map waypoints
+            FlightPlanner.clearWaypoints();
+
+            // Clear ALL route inputs
+            const allInputs = document.querySelectorAll('.route-input');
+            console.log('[Planner] Found', allInputs.length, 'inputs to clear');
+            allInputs.forEach(input => {
+                input.value = '';
+                input.classList.remove('resolved', 'error');
+            });
+
+            // Clear input data map
+            routeInputData.clear();
+
+            // Hide all autocomplete dropdowns
+            hideAllAutocompletes();
+
+            // Remove stop rows (keep start/end)
+            document.querySelectorAll('.route-input-row').forEach(row => {
+                const input = row.querySelector('.route-input');
+                if (input && input.dataset.type === 'stop') {
+                    row.remove();
+                }
+            });
+
+            stopCounter = 0;
+            updateMarkerLabels();
+            updateClearButtonState();
+
+            // Reset validation UI
+            currentRouteData = null;
+            updateValidationUI(null);
+
+            showToast('All cleared', 'success');
+        });
+
+        // ========================================================================
+        // Initialization
+        // ========================================================================
+
+        async function init() {
+            try {
+                await FlightPlanner.initViewer('cesiumContainer', CESIUM_ION_TOKEN);
+
+                // Initialize autocomplete service with Cesium Ion
+                autocompleteService = new AutocompleteService(FlightPlanner.getViewer());
+                initializeAutocomplete();
+                console.log('[Planner] Autocomplete service initialized');
+
+                // Fly to Irvine area
+                FlightPlanner.flyTo(33.6846, -117.8265, 2000);
+
+                // Hide loading overlay
+                document.getElementById('loadingOverlay').classList.add('hidden');
+
+                showToast('Flight Planner ready!', 'success');
+                refreshDroneOptions();
+                refreshGeofenceOverlay();
+                setInterval(refreshGeofenceOverlay, 15000);
+
+            } catch (error) {
+                console.error('Initialization failed:', error);
+                document.getElementById('loadingOverlay').innerHTML = `
+          <div style="color: var(--accent-red); text-align: center;">
+            <div style="font-size: 2rem; margin-bottom: 16px;">Error</div>
+            <div>Failed to initialize: ${error.message}</div>
+          </div>
+        `;
+            }
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

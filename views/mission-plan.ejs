@@ -114,7 +114,7 @@
 
                     <div class="section-subtitle mt-lg">Waypoints</div>
                     <div class="text-muted" style="margin-bottom: 8px;">
-                        Click on the map to drop waypoints. A corridor will be generated from the path.
+                        Click on the map to drop waypoints, then optimize to generate a building-aware route.
                     </div>
                     <div class="waypoint-list" id="waypointList">
                         <div class="empty-state" style="padding: 12px;">
@@ -125,7 +125,9 @@
                     <div class="flex gap-sm mt-md">
                         <button class="btn btn-ghost btn-sm" id="removeLastWaypoint">Remove Last</button>
                         <button class="btn btn-ghost btn-sm" id="clearWaypoints">Clear Route</button>
+                        <button class="btn btn-ghost btn-sm" id="optimizeRoute">Optimize Route</button>
                     </div>
+                    <div class="text-muted mt-sm" id="routeStatus">Route not analyzed yet.</div>
 
                     <div class="flex gap-sm mt-lg">
                         <button class="btn btn-primary" id="submitMission">Submit Flight Declaration</button>
@@ -136,7 +138,10 @@
             <div class="card">
                 <div class="card-header">
                     <div class="card-title">Compliance Checklist</div>
-                    <span class="status-badge pending" id="complianceOverall">Pending</span>
+                    <div class="flex items-center gap-sm">
+                        <button class="btn btn-ghost btn-sm" id="analyzeCompliance">Auto Analyze</button>
+                        <span class="status-badge pending" id="complianceOverall">Pending</span>
+                    </div>
                 </div>
                 <div class="card-body">
                     <div class="detail-row">
@@ -213,6 +218,9 @@
                                 <label class="form-label">Cruise speed (m/s)</label>
                                 <input type="number" class="form-input" id="cruiseSpeed" value="10" min="1" step="0.5">
                             </div>
+                            <div class="compliance-actions">
+                                <button class="btn btn-ghost btn-sm" id="autoBattery">Auto Estimate</button>
+                            </div>
                             <div class="compliance-meta" id="batteryMeta">Route not evaluated yet.</div>
                         </div>
 
@@ -277,6 +285,8 @@
     </div>
     `,
     scripts: `
+    <script src="/assets/js/route-engine.js"></script>
+    <script src="/assets/js/route-planner.js"></script>
     <script src="/assets/js/mission-plan.js"></script>
     `
     }) %>

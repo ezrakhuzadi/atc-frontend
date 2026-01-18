@@ -1,0 +1,348 @@
+<%- include('layouts/main', {
+    title: 'Flight Planner',
+    activePage: 'planner',
+    head: `
+    <style>
+        .planner-frame {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: #0f172a;
+        }
+    </style>
+    `,
+    body: `
+    <div class="content-area no-padding">
+        <iframe
+            id="plannerFrame"
+            class="planner-frame"
+            src="/assets/planner/index.html"
+            title="Flight Planner"
+            loading="lazy"
+            referrerpolicy="no-referrer"
+        ></iframe>
+    </div>
+    `,
+    scripts: `
+    <script>
+        (() => {
+            const frame = document.getElementById('plannerFrame');
+            if (!frame) return;
+
+            const declarationUrl = '/api/blender/flight-declarations';
+            const weatherUrl = '/api/compliance/weather';
+            const analysisUrl = '/api/compliance/analyze';
+            const PREFILL_KEY = 'plannerPrefill';
+
+            const COMPLIANCE_DEFAULTS = {
+                batteryCapacityMin: 25,
+                batteryReserveMin: 5,
+                clearanceM: 60,
+                operationType: 1
+            };
+
+            function toRad(deg) {
+                return deg * Math.PI / 180;
+            }
+
+            function haversineDistance(a, b) {
+                const R = 6371000;
+                const dLat = toRad(b.lat - a.lat);
+                const dLon = toRad(b.lon - a.lon);
+                const lat1 = toRad(a.lat);
+                const lat2 = toRad(b.lat);
+                const h = Math.sin(dLat / 2) ** 2
+                    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+                return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+            }
+
+            function computeRouteDistance(points) {
+                if (!Array.isArray(points) || points.length < 2) return 0;
+                let total = 0;
+                for (let i = 1; i < points.length; i += 1) {
+                    total += haversineDistance(points[i - 1], points[i]);
+                }
+                return total;
+            }
+
+            function computeCenter(points) {
+                if (!points.length) return null;
+                const sum = points.reduce((acc, pt) => {
+                    acc.lat += pt.lat;
+                    acc.lon += pt.lon;
+                    return acc;
+                }, { lat: 0, lon: 0 });
+                return {
+                    lat: sum.lat / points.length,
+                    lon: sum.lon / points.length
+                };
+            }
+
+            function getAltitudeRange(points) {
+                let minAlt = Infinity;
+                let maxAlt = -Infinity;
+                points.forEach((pt) => {
+                    const alt = Number(pt.alt);
+                    if (!Number.isFinite(alt)) return;
+                    minAlt = Math.min(minAlt, alt);
+                    maxAlt = Math.max(maxAlt, alt);
+                });
+                if (!Number.isFinite(minAlt)) minAlt = 0;
+                if (!Number.isFinite(maxAlt)) maxAlt = 0;
+                return { minAlt, maxAlt };
+            }
+
+            function safeNumber(value) {
+                const num = Number(value);
+                return Number.isFinite(num) ? num : null;
+            }
+
+            async function fetchWeather(center) {
+                if (!center) return null;
+                const url = weatherUrl + '?lat=' + encodeURIComponent(center.lat) + '&lon=' + encodeURIComponent(center.lon);
+                const response = await fetch(url, { credentials: 'same-origin' });
+                if (!response.ok) return null;
+                const data = await response.json();
+                const current = data.current || data.current_weather || {};
+                return {
+                    windMps: safeNumber(current.wind_speed_10m ?? current.wind_speed),
+                    gustMps: safeNumber(current.wind_gusts_10m ?? current.wind_gusts),
+                    precipMm: safeNumber(current.precipitation)
+                };
+            }
+
+            async function fetchAnalysis(points, clearanceM) {
+                if (!points.length) return null;
+                const response = await fetch(analysisUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        points: points.map((pt) => ({ lat: pt.lat, lon: pt.lon })),
+                        clearance_m: clearanceM
+                    })
+                });
+                if (!response.ok) return null;
+                return response.json();
+            }
+
+            function buildCompliance(weather, analysis, speedMps, planId) {
+                const density = safeNumber(analysis?.population?.density);
+                const hazards = Array.isArray(analysis?.obstacles) ? analysis.obstacles : [];
+
+                return {
+                    atc_plan_id: planId || null,
+                    override: { enabled: false, notes: '' },
+                    checks: {
+                        weather: {
+                            windMps: weather ? weather.windMps : null,
+                            gustMps: weather ? weather.gustMps : null,
+                            precipMm: weather ? weather.precipMm : null,
+                            maxWindMps: 12,
+                            maxGustMps: 15,
+                            maxPrecipMm: 2
+                        },
+                        battery: {
+                            capacityMin: COMPLIANCE_DEFAULTS.batteryCapacityMin,
+                            reserveMin: COMPLIANCE_DEFAULTS.batteryReserveMin,
+                            cruiseSpeedMps: speedMps
+                        },
+                        population: {
+                            density: density
+                        },
+                        obstacles: {
+                            clearanceM: COMPLIANCE_DEFAULTS.clearanceM,
+                            hazards: hazards
+                        }
+                    }
+                };
+            }
+
+            function buildGeoJson(points, minAlt, maxAlt, startIso, endIso, compliance) {
+                const coordinates = points.map((pt) => [pt.lon, pt.lat]);
+                const geometry = coordinates.length === 1
+                    ? { type: 'Point', coordinates: coordinates[0] }
+                    : { type: 'LineString', coordinates };
+
+                return {
+                    type: 'FeatureCollection',
+                    features: [
+                        {
+                            type: 'Feature',
+                            geometry,
+                            properties: {
+                                min_altitude: { meters: minAlt, datum: 'W84' },
+                                max_altitude: { meters: maxAlt, datum: 'W84' },
+                                start_time: startIso,
+                                end_time: endIso,
+                                compliance: compliance
+                            }
+                        }
+                    ]
+                };
+            }
+
+            function queuePlannerPrefill(prefill) {
+                try {
+                    sessionStorage.setItem(PREFILL_KEY, JSON.stringify(prefill));
+                } catch (error) {
+                    console.warn('Unable to persist planner prefill:', error);
+                }
+                window.location.href = '/control/missions/plan?prefill=planner';
+            }
+
+            async function submitDeclaration(payload) {
+                const response = await fetch(declarationUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(payload)
+                });
+                const body = await response.text();
+                let parsed = null;
+                try {
+                    parsed = body ? JSON.parse(body) : null;
+                } catch (error) {
+                    parsed = null;
+                }
+                return { response, parsed, raw: body };
+            }
+
+            async function tryAutoDeclare(result, win) {
+                const payload = result?.payload;
+                const rawWaypoints = Array.isArray(payload?.waypoints) ? payload.waypoints : [];
+                const points = rawWaypoints.map((wp) => ({ lat: wp.lat, lon: wp.lon, alt: wp.alt }));
+                if (!points.length) return;
+
+                const speedMps = safeNumber(payload?.metadata?.drone_speed_mps) || 15;
+                const distanceM = computeRouteDistance(points);
+                const durationSec = safeNumber(payload?.metadata?.total_flight_time_s)
+                    || (speedMps > 0 ? distanceM / speedMps : 0);
+
+                const start = new Date(Date.now() + 5 * 60 * 1000);
+                const end = new Date(start.getTime() + Math.max(durationSec, 300) * 1000);
+
+                const center = computeCenter(points);
+                const [weather, analysis] = await Promise.all([
+                    fetchWeather(center),
+                    fetchAnalysis(points, COMPLIANCE_DEFAULTS.clearanceM)
+                ]);
+
+                const flightId = payload?.flight_id || ('planner-' + Date.now());
+                const compliance = buildCompliance(weather, analysis, speedMps, flightId);
+                const altRange = getAltitudeRange(points);
+                const droneId = payload?.metadata?.drone_id || ('PLANNER-' + flightId);
+
+                const declarationPayload = {
+                    flight_declaration_geo_json: buildGeoJson(
+                        points,
+                        altRange.minAlt,
+                        altRange.maxAlt,
+                        start.toISOString(),
+                        end.toISOString(),
+                        compliance
+                    ),
+                    start_datetime: start.toISOString(),
+                    end_datetime: end.toISOString(),
+                    submitted_by: window.APP_USER?.email || 'planner@atc.local',
+                    type_of_operation: COMPLIANCE_DEFAULTS.operationType,
+                    originating_party: 'Planner ' + flightId,
+                    aircraft_id: droneId
+                };
+
+                const prefill = {
+                    source: 'planner',
+                    flightId: flightId,
+                    droneId: droneId,
+                    waypoints: points,
+                    minAltitude: altRange.minAlt,
+                    maxAltitude: altRange.maxAlt,
+                    cruiseSpeedMps: speedMps,
+                    missionName: 'Planner ' + flightId,
+                    missionType: 'survey',
+                    operationType: COMPLIANCE_DEFAULTS.operationType,
+                    missionStart: start.toISOString(),
+                    missionEnd: end.toISOString(),
+                    batteryCapacityMin: COMPLIANCE_DEFAULTS.batteryCapacityMin,
+                    batteryReserveMin: COMPLIANCE_DEFAULTS.batteryReserveMin,
+                    weather: weather,
+                    populationDensity: analysis?.population?.density ?? null,
+                    obstacleClearanceM: COMPLIANCE_DEFAULTS.clearanceM
+                };
+
+                if (!weather || !analysis) {
+                    if (typeof win.showToast === 'function') {
+                        win.showToast('Compliance data incomplete. Redirecting for manual review.', 'warn');
+                    }
+                    queuePlannerPrefill(prefill);
+                    return;
+                }
+
+                const { response, parsed, raw } = await submitDeclaration(declarationPayload);
+                if (response.ok) {
+                    if (typeof win.showToast === 'function') {
+                        win.showToast('Flight Declaration submitted to Flight Blender.', 'success');
+                    }
+                    return;
+                }
+
+                if (response.status === 400) {
+                    if (typeof win.showToast === 'function') {
+                        win.showToast('Compliance review required. Opening Mission Plan.', 'warn');
+                    }
+                    queuePlannerPrefill(prefill);
+                    return;
+                }
+
+                if (typeof win.showToast === 'function') {
+                    win.showToast('Flight Declaration failed: ' + response.status + ' ' + (parsed?.message || raw), 'error');
+                }
+            }
+
+            function patchPlanner(win) {
+                if (!win || !win.FlightPlanner) return false;
+                if (win.FlightPlanner.__atcMerged) return true;
+
+                const originalSubmit = win.FlightPlanner.submitToATC;
+                if (typeof originalSubmit !== 'function') return false;
+
+                win.FlightPlanner.submitToATC = async function (routeData) {
+                    const result = await originalSubmit(routeData);
+
+                    try {
+                        if (result && result.payload) {
+                            await tryAutoDeclare(result, win);
+                        }
+                    } catch (error) {
+                        if (typeof win.showToast === 'function') {
+                            win.showToast('ATC submission failed: ' + error.message, 'error');
+                        }
+                    }
+
+                    return result;
+                };
+
+                win.FlightPlanner.__atcMerged = true;
+                return true;
+            }
+
+            function waitForPlanner() {
+                const win = frame.contentWindow;
+                if (!win) return;
+
+                if (patchPlanner(win)) return;
+
+                let attempts = 0;
+                const timer = setInterval(() => {
+                    attempts += 1;
+                    if (patchPlanner(win) || attempts > 50) {
+                        clearInterval(timer);
+                    }
+                }, 100);
+            }
+
+            frame.addEventListener('load', waitForPlanner);
+        })();
+    </script>
+    `
+}) %>

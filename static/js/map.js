@@ -6,24 +6,31 @@
 (function () {
     'use strict';
 
+    const statusUtils = window.ATCStatus || {
+        getStatusClass: () => 'online'
+    };
+
     // ========================================================================
     // Configuration
     // ========================================================================
 
     const CONFIG = {
         ATC_SERVER_URL: window.__ATC_API_BASE__ || 'http://localhost:3000',
+        ATC_WS_BASE: window.__ATC_WS_BASE__ || '',
         CESIUM_ION_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlNzYzZDA0ZC0xMzM2LTRiZDYtOTlmYi00YWZlYWIyMmIzZDQiLCJpZCI6Mzc5MzIwLCJpYXQiOjE3Njg1MTI0NTV9.SFfIGeLNyHKRsAD8oJdDHpNibeSoxx_ISirSN1-xKdg',
         GOOGLE_3D_TILES_ASSET_ID: 2275207,
         DEFAULT_VIEW: { lat: 33.6846, lon: -117.8265, height: 2000 },
         MAX_TRAIL_POINTS: 60,
         HEADING_ARROW_LENGTH_M: 100,
+        WS_RETRY_MS: 5000,
         REFRESH_INTERVALS: {
             drones: 1000,
             conflicts: 2000,
             flightPlans: 5000,
             geofences: 10000,
             health: 5000,
-            conformance: 8000
+            conformance: 8000,
+            daa: 4000
         }
     };
 
@@ -32,13 +39,18 @@
     // ========================================================================
 
     let viewer = null;
+    let realtimeSocket = null;
+    let realtimeRetryTimer = null;
 
     // Drone tracking
     const droneEntities = new Map();  // droneId -> Cesium.Entity
     const droneTrails = new Map();    // droneId -> [Cartesian3]
     const droneData = new Map();      // droneId -> {lat, lon, alt, speed, heading}
     const headingArrows = new Map();  // droneId -> arrow entity
+    let visibleDroneIds = new Set();
     const conformanceStatuses = new Map(); // droneId -> status payload
+    const daaAdvisories = new Map(); // advisoryId -> advisory
+    const daaByDrone = new Map(); // droneId -> primary advisory
 
     // Conflicts
     const conflictEntities = new Map();  // conflictId -> entity
@@ -55,9 +67,25 @@
     let cameraMode = 'free';  // free, orbit, cockpit
     let trackedDroneId = null;
     let selectedDroneId = null;
+    let ridViewTimer = null;
+    let lastRidViewKey = null;
+
+    const MAX_ROUTE_POINTS = 400;
 
     // Time of day
     let currentTOD = 'realtime';
+
+    // Orbit camera state
+    let orbitHeading = 0;
+    let orbitPitch = Cesium.Math.toRadians(-35);
+    let orbitRange = 600;
+    const ORBIT_PITCH_MIN = Cesium.Math.toRadians(-80);
+    const ORBIT_PITCH_MAX = Cesium.Math.toRadians(-10);
+    const ORBIT_RANGE_MIN = 80;
+    const ORBIT_RANGE_MAX = 8000;
+    const ORBIT_STEP_HEADING = Cesium.Math.toRadians(10);
+    const ORBIT_STEP_PITCH = Cesium.Math.toRadians(5);
+    const ORBIT_STEP_RANGE = 150;
 
     // ========================================================================
     // Initialization
@@ -132,6 +160,8 @@
 
         // Start polling loops
         startPollingLoops();
+        startRealtime();
+        scheduleRidViewUpdate();
 
         // Check for tracking param from URL
         const params = new URLSearchParams(window.location.search);
@@ -156,7 +186,8 @@
             if (entity && flightPlans.has(entity.id)) {
                 // Show flight plan route
                 const plan = flightPlans.get(entity.id);
-                const positions = plan.waypoints.map(wp =>
+                const route = getPlanRouteWaypoints(plan);
+                const positions = route.map(wp =>
                     Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.altitude_m)
                 );
 
@@ -180,7 +211,8 @@
                 showSelectedDronePanel(true);
 
                 if (cameraMode === 'orbit') {
-                    viewer.trackedEntity = entity;
+                    viewer.trackedEntity = undefined;
+                    syncOrbitCamera();
                 }
             } else {
                 showSelectedDronePanel(false);
@@ -191,8 +223,16 @@
             }
         });
 
+        viewer.camera.moveEnd.addEventListener(() => {
+            scheduleRidViewUpdate();
+        });
+
         // Cockpit camera update on tick
         viewer.clock.onTick.addEventListener((clock) => {
+            if (cameraMode === 'orbit') {
+                syncOrbitCamera(clock.currentTime);
+                return;
+            }
             if (cameraMode === 'cockpit' && trackedDroneId && droneEntities.has(trackedDroneId)) {
                 try {
                     const entity = droneEntities.get(trackedDroneId);
@@ -224,6 +264,68 @@
         });
     }
 
+    function scheduleRidViewUpdate() {
+        if (!viewer) return;
+        if (ridViewTimer) clearTimeout(ridViewTimer);
+        ridViewTimer = setTimeout(pushRidViewUpdate, 750);
+    }
+
+    function computeRidViewBBox() {
+        if (!viewer) return null;
+        const rectangle = viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid);
+        if (!rectangle) return null;
+
+        let minLat = Cesium.Math.toDegrees(rectangle.south);
+        let maxLat = Cesium.Math.toDegrees(rectangle.north);
+        let minLon = Cesium.Math.toDegrees(rectangle.west);
+        let maxLon = Cesium.Math.toDegrees(rectangle.east);
+
+        if (maxLon < minLon) {
+            minLon = -180;
+            maxLon = 180;
+        }
+
+        minLat = Math.max(-90, Math.min(90, minLat));
+        maxLat = Math.max(-90, Math.min(90, maxLat));
+        minLon = Math.max(-180, Math.min(180, minLon));
+        maxLon = Math.max(-180, Math.min(180, maxLon));
+
+        return {
+            min_lat: minLat,
+            min_lon: minLon,
+            max_lat: maxLat,
+            max_lon: maxLon
+        };
+    }
+
+    async function pushRidViewUpdate() {
+        const view = computeRidViewBBox();
+        if (!view) return;
+
+        const viewKey = [
+            view.min_lat.toFixed(5),
+            view.min_lon.toFixed(5),
+            view.max_lat.toFixed(5),
+            view.max_lon.toFixed(5)
+        ].join(',');
+
+        if (viewKey === lastRidViewKey) return;
+        lastRidViewKey = viewKey;
+
+        try {
+            await fetch(`${CONFIG.ATC_SERVER_URL}/v1/rid/view`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(view)
+            });
+        } catch (error) {
+            console.warn('[Map] RID view sync failed:', error);
+        }
+    }
+
     // ========================================================================
     // Polling Loops
     // ========================================================================
@@ -248,6 +350,146 @@
         // Conformance
         fetchConformance();
         setInterval(fetchConformance, CONFIG.REFRESH_INTERVALS.conformance);
+
+        // DAA
+        fetchDaa();
+        setInterval(fetchDaa, CONFIG.REFRESH_INTERVALS.daa);
+    }
+
+    // ========================================================================
+    // Realtime Streaming
+    // ========================================================================
+
+    function startRealtime() {
+        if (typeof WebSocket === 'undefined') {
+            console.warn('[Map] WebSocket not available in this browser.');
+            return;
+        }
+
+        const wsUrl = resolveWsUrl();
+        if (!wsUrl) {
+            console.warn('[Map] Realtime streaming disabled (set ATC_WS_URL to enable).');
+            return;
+        }
+
+        connectRealtime(wsUrl);
+    }
+
+    function connectRealtime(wsUrl) {
+        if (realtimeSocket && realtimeSocket.readyState === WebSocket.OPEN) {
+            return;
+        }
+        if (realtimeSocket) {
+            realtimeSocket.close();
+        }
+
+        try {
+            realtimeSocket = new WebSocket(wsUrl);
+        } catch (error) {
+            console.warn('[Map] Failed to start realtime WebSocket:', error);
+            scheduleRealtimeReconnect(wsUrl);
+            return;
+        }
+
+        realtimeSocket.onopen = () => {
+            console.log('[Map] Realtime stream connected.');
+            if (realtimeRetryTimer) {
+                clearTimeout(realtimeRetryTimer);
+                realtimeRetryTimer = null;
+            }
+        };
+
+        realtimeSocket.onmessage = (event) => {
+            if (!event?.data) return;
+            try {
+                const payload = JSON.parse(event.data);
+                if (!payload?.drone_id) return;
+                const ownerId = getOwnerFilterId();
+                if (ownerId) {
+                    if (!payload.owner_id) return;
+                    if (payload.owner_id !== ownerId) return;
+                }
+                updateDronePosition(
+                    payload.drone_id,
+                    payload.lon,
+                    payload.lat,
+                    payload.altitude_m,
+                    payload.heading_deg,
+                    payload.speed_mps,
+                    payload.status,
+                    payload.traffic_source || 'local'
+                );
+            } catch (error) {
+                console.warn('[Map] Realtime message parse failed:', error);
+            }
+        };
+
+        realtimeSocket.onclose = () => {
+            console.warn('[Map] Realtime stream disconnected. Retrying...');
+            scheduleRealtimeReconnect(wsUrl);
+        };
+
+        realtimeSocket.onerror = () => {
+            if (realtimeSocket) {
+                realtimeSocket.close();
+            }
+        };
+    }
+
+    function scheduleRealtimeReconnect(wsUrl) {
+        if (realtimeRetryTimer) return;
+        realtimeRetryTimer = setTimeout(() => {
+            realtimeRetryTimer = null;
+            connectRealtime(wsUrl);
+        }, CONFIG.WS_RETRY_MS);
+    }
+
+    function resolveWsUrl() {
+        let base = CONFIG.ATC_WS_BASE;
+        if (!base) {
+            if (/^https?:\/\//i.test(CONFIG.ATC_SERVER_URL)) {
+                base = CONFIG.ATC_SERVER_URL;
+            } else {
+                return '';
+            }
+        }
+
+        if (/^https?:\/\//i.test(base)) {
+            base = base.replace(/^http/i, 'ws');
+        } else if (!/^wss?:\/\//i.test(base)) {
+            return '';
+        }
+
+        return appendWsPath(base);
+    }
+
+    function appendWsPath(base) {
+        if (!base) return '';
+        if (base.includes('/v1/ws')) return base;
+        if (base.endsWith('/')) return `${base}v1/ws`;
+        return `${base}/v1/ws`;
+    }
+
+    function getOwnerFilterId() {
+        const user = window.APP_USER;
+        if (!user || user.role === 'authority') return null;
+        return user.id || null;
+    }
+
+    function isExternalSource(source) {
+        return !!source && source !== 'local';
+    }
+
+    function getTrafficSilhouetteColor(source) {
+        return isExternalSource(source) ? Cesium.Color.DODGERBLUE : Cesium.Color.CYAN;
+    }
+
+    function getTrafficTrailColor(source) {
+        return isExternalSource(source) ? Cesium.Color.SKYBLUE : Cesium.Color.YELLOW;
+    }
+
+    function getTrafficArrowColor(source) {
+        return isExternalSource(source) ? Cesium.Color.SKYBLUE : Cesium.Color.CYAN;
     }
 
     // ========================================================================
@@ -256,8 +498,16 @@
 
     async function fetchDrones() {
         try {
-            console.log('[Map] Fetching drones from:', CONFIG.ATC_SERVER_URL + '/v1/drones');
-            const response = await fetch(CONFIG.ATC_SERVER_URL + '/v1/drones', {
+            const params = new URLSearchParams();
+            const ownerId = getOwnerFilterId();
+            if (ownerId) {
+                params.set('owner_id', ownerId);
+            } else {
+                params.set('include_external', 'true');
+            }
+            const endpoint = `/v1/traffic${params.toString() ? `?${params.toString()}` : ''}`;
+            console.log('[Map] Fetching traffic from:', CONFIG.ATC_SERVER_URL + endpoint);
+            const response = await fetch(CONFIG.ATC_SERVER_URL + endpoint, {
                 credentials: 'same-origin'
             });
             if (!response.ok) {
@@ -266,7 +516,7 @@
             }
 
             const drones = await response.json();
-            console.log('[Map] Received', drones.length, 'drones:', drones.map(d => d.drone_id));
+            console.log('[Map] Received', drones.length, 'tracks:', drones.map(d => d.drone_id));
 
             // Update status bar
             const droneCountEl = document.getElementById('droneCountValue');
@@ -285,7 +535,9 @@
                     drone.lat,
                     drone.altitude_m,
                     drone.heading_deg,
-                    drone.speed_mps
+                    drone.speed_mps,
+                    drone.status,
+                    drone.traffic_source
                 );
             });
 
@@ -305,6 +557,8 @@
                 }
             }
 
+            visibleDroneIds = currentIds;
+
             // Update sidebar list
             updateDroneList(drones);
 
@@ -315,7 +569,11 @@
 
     async function fetchConformance() {
         try {
-            const response = await fetch(CONFIG.ATC_SERVER_URL + '/v1/conformance', {
+            const params = new URLSearchParams();
+            const ownerId = getOwnerFilterId();
+            if (ownerId) params.set('owner_id', ownerId);
+            const endpoint = `/v1/conformance${params.toString() ? `?${params.toString()}` : ''}`;
+            const response = await fetch(CONFIG.ATC_SERVER_URL + endpoint, {
                 credentials: 'same-origin'
             });
             if (!response.ok) {
@@ -333,11 +591,39 @@
         }
     }
 
-    function updateDronePosition(droneId, lon, lat, altMeters, heading, speed) {
+    async function fetchDaa() {
+        try {
+            const params = new URLSearchParams();
+            const ownerId = getOwnerFilterId();
+            if (ownerId) params.set('owner_id', ownerId);
+            params.set('active_only', 'true');
+
+            const endpoint = `/v1/daa${params.toString() ? `?${params.toString()}` : ''}`;
+            const response = await fetch(CONFIG.ATC_SERVER_URL + endpoint, {
+                credentials: 'same-origin'
+            });
+            if (!response.ok) {
+                console.error('[Map] DAA fetch failed:', response.status, response.statusText);
+                return;
+            }
+
+            const advisories = await response.json();
+            updateDaaState(advisories);
+            updateDaaList(advisories);
+            updateSelectedDaaFields();
+        } catch (e) {
+            console.error('[Map] DAA fetch error:', e.message);
+        }
+    }
+
+    function updateDronePosition(droneId, lon, lat, altMeters, heading, speed, status, trafficSource) {
         try {
             const validLon = Number(lon) || 0;
             const validLat = Number(lat) || 0;
             const validAlt = Number(altMeters) || 0;
+            const source = trafficSource || 'local';
+            const statusValue = status || 'active';
+            const external = isExternalSource(source);
 
             if (validLon === 0 && validLat === 0) return;
 
@@ -357,6 +643,7 @@
             const description = `
                 <table style="font-size: 12px;">
                     <tr><td>ID:</td><td><strong>${droneId}</strong></td></tr>
+                    <tr><td>Source:</td><td>${external ? 'Remote ID' : 'Local'}</td></tr>
                     <tr><td>Speed:</td><td>${(speed || 0).toFixed(1)} m/s</td></tr>
                     <tr><td>Heading:</td><td>${(heading || 0).toFixed(0)}°</td></tr>
                     <tr><td>Altitude:</td><td>${altMeters.toFixed(0)} m</td></tr>
@@ -369,6 +656,8 @@
                 const headingRad = Cesium.Math.toRadians(heading || 0);
                 const hpr = new Cesium.HeadingPitchRoll(headingRad, 0, 0);
                 const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+                const silhouetteColor = getTrafficSilhouetteColor(source);
+                const trailColor = getTrafficTrailColor(source);
 
                 const entity = viewer.entities.add({
                     id: droneId,
@@ -381,7 +670,7 @@
                         minimumPixelSize: 32,
                         maximumScale: 200,
                         scale: 0.5,
-                        silhouetteColor: Cesium.Color.CYAN,
+                        silhouetteColor: silhouetteColor,
                         silhouetteSize: 1.5,
                         colorBlendMode: Cesium.ColorBlendMode.HIGHLIGHT,
                         colorBlendAmount: 0.0
@@ -404,7 +693,7 @@
                         width: 3,
                         material: new Cesium.PolylineGlowMaterialProperty({
                             glowPower: 0.2,
-                            color: Cesium.Color.YELLOW
+                            color: trailColor
                         })
                     }
                 });
@@ -426,7 +715,7 @@
             }
 
             // Store data
-            droneData.set(droneId, { lat: validLat, lon: validLon, alt: validAlt, speed, heading });
+            droneData.set(droneId, { lat: validLat, lon: validLon, alt: validAlt, speed, heading, status: statusValue, source, external });
 
             // Update heading arrow
             const headingRad = Cesium.Math.toRadians(heading || 0);
@@ -435,12 +724,13 @@
             const arrowEnd = Cesium.Cartesian3.fromDegrees(arrowEndLon, arrowEndLat, validAlt);
 
             if (!headingArrows.has(droneId)) {
+                const arrowColor = getTrafficArrowColor(source);
                 const arrow = viewer.entities.add({
                     id: `arrow-${droneId}`,
                     polyline: {
                         positions: [position, arrowEnd],
                         width: 6,
-                        material: new Cesium.PolylineArrowMaterialProperty(Cesium.Color.CYAN)
+                        material: new Cesium.PolylineArrowMaterialProperty(arrowColor)
                     }
                 });
                 headingArrows.set(droneId, arrow);
@@ -451,7 +741,7 @@
 
             // Update selected drone panel if this is the selected drone
             if (selectedDroneId === droneId) {
-                updateSelectedDronePanel({ lat: validLat, lon: validLon, alt: validAlt, speed, heading });
+                updateSelectedDronePanel(droneData.get(droneId));
             }
 
         } catch (error) {
@@ -465,12 +755,21 @@
 
     async function fetchConflicts() {
         try {
-            const response = await fetch(CONFIG.ATC_SERVER_URL + '/v1/conflicts', {
+            const params = new URLSearchParams();
+            const ownerId = getOwnerFilterId();
+            if (ownerId) params.set('owner_id', ownerId);
+            const endpoint = `/v1/conflicts${params.toString() ? `?${params.toString()}` : ''}`;
+            const response = await fetch(CONFIG.ATC_SERVER_URL + endpoint, {
                 credentials: 'same-origin'
             });
             if (!response.ok) return;
 
-            const conflicts = await response.json();
+            let conflicts = await response.json();
+            if (ownerId && visibleDroneIds.size) {
+                conflicts = conflicts.filter(conflict =>
+                    visibleDroneIds.has(conflict.drone1_id) || visibleDroneIds.has(conflict.drone2_id)
+                );
+            }
             activeConflicts = conflicts;
             renderConflicts(conflicts);
             updateConflictsList(conflicts);
@@ -552,7 +851,8 @@
         });
         for (const [id, entity] of droneEntities) {
             if (!conflictingDrones.has(id) && entity.model) {
-                entity.model.silhouetteColor = Cesium.Color.CYAN;
+                const source = droneData.get(id)?.source || 'local';
+                entity.model.silhouetteColor = getTrafficSilhouetteColor(source);
             }
         }
     }
@@ -639,7 +939,11 @@
 
     async function fetchFlightPlans() {
         try {
-            const response = await fetch(CONFIG.ATC_SERVER_URL + '/v1/flights', {
+            const params = new URLSearchParams();
+            const ownerId = getOwnerFilterId();
+            if (ownerId) params.set('owner_id', ownerId);
+            const endpoint = `/v1/flights${params.toString() ? `?${params.toString()}` : ''}`;
+            const response = await fetch(CONFIG.ATC_SERVER_URL + endpoint, {
                 credentials: 'same-origin'
             });
             if (!response.ok) return;
@@ -652,6 +956,47 @@
         } catch (e) {
             // Server might not be running
         }
+    }
+
+    function normalizeRoutePoint(point) {
+        if (!point) return null;
+        const lat = Number(point.lat);
+        const lon = Number(point.lon);
+        const altitude = Number(point.altitude_m ?? point.alt);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return {
+            lat,
+            lon,
+            altitude_m: Number.isFinite(altitude) ? altitude : 0
+        };
+    }
+
+    function sampleWaypoints(points, maxPoints) {
+        if (!Array.isArray(points) || points.length === 0) return [];
+        const normalized = points.map(normalizeRoutePoint).filter(Boolean);
+        if (normalized.length <= maxPoints) return normalized;
+
+        const step = Math.ceil(normalized.length / maxPoints);
+        const sampled = [];
+        for (let i = 0; i < normalized.length; i += step) {
+            sampled.push(normalized[i]);
+        }
+        const last = normalized[normalized.length - 1];
+        if (sampled.length && sampled[sampled.length - 1] !== last) {
+            sampled.push(last);
+        }
+        return sampled;
+    }
+
+    function getPlanRouteWaypoints(plan) {
+        if (!plan) return [];
+        if (Array.isArray(plan.trajectory_log) && plan.trajectory_log.length) {
+            return sampleWaypoints(plan.trajectory_log, MAX_ROUTE_POINTS);
+        }
+        if (Array.isArray(plan.waypoints)) {
+            return plan.waypoints.map(normalizeRoutePoint).filter(Boolean);
+        }
+        return [];
     }
 
     // ========================================================================
@@ -672,9 +1017,20 @@
         }
 
         container.innerHTML = drones.map(drone => {
+            const isExternal = isExternalSource(drone.traffic_source);
             const conformance = conformanceStatuses.get(drone.drone_id);
             const conformanceStatus = conformance?.status || 'unknown';
             const conformanceClass = getConformanceClass(conformanceStatus);
+            const daa = daaByDrone.get(drone.drone_id);
+            const daaBadge = daa
+                ? `<span class="status-badge ${getDaaClass(daa.severity)}" style="margin-left: 4px;">${formatDaaSeverity(daa.severity)}</span>`
+                : '';
+            const sourceBadge = isExternal
+                ? `<span class="status-badge pending" style="margin-left: 4px;">RID</span>`
+                : '';
+            const statusLine = isExternal
+                ? `<span class="status-badge warn">external</span>${sourceBadge}`
+                : `<span class="status-badge ${conformanceClass}">${conformanceStatus}</span>${daaBadge}`;
             return `
                 <div class="drone-track-item ${selectedDroneId === drone.drone_id ? 'selected' : ''}" 
                      onclick="MapControl.selectDrone('${drone.drone_id}')">
@@ -683,7 +1039,7 @@
                         <div class="list-item-title" style="font-size: 13px;">${drone.drone_id}</div>
                         <div class="list-item-subtitle" style="font-size: 11px;">${drone.altitude_m.toFixed(0)}m | ${drone.speed_mps.toFixed(1)} m/s</div>
                         <div class="list-item-subtitle" style="font-size: 11px;">
-                            <span class="status-badge ${conformanceClass}">${conformanceStatus}</span>
+                            ${statusLine}
                         </div>
                     </div>
                 </div>
@@ -717,6 +1073,71 @@
         `).join('');
     }
 
+    function updateDaaState(advisories) {
+        daaAdvisories.clear();
+        daaByDrone.clear();
+
+        if (!Array.isArray(advisories)) {
+            return;
+        }
+
+        for (const advisory of advisories) {
+            if (!advisory || !advisory.advisory_id || !advisory.drone_id) continue;
+            daaAdvisories.set(advisory.advisory_id, advisory);
+
+            const existing = daaByDrone.get(advisory.drone_id);
+            if (!existing) {
+                daaByDrone.set(advisory.drone_id, advisory);
+                continue;
+            }
+
+            const nextRank = getDaaSeverityRank(advisory.severity);
+            const currentRank = getDaaSeverityRank(existing.severity);
+            if (nextRank > currentRank) {
+                daaByDrone.set(advisory.drone_id, advisory);
+                continue;
+            }
+
+            if (nextRank === currentRank) {
+                const nextUpdated = Date.parse(advisory.updated_at || '') || 0;
+                const currentUpdated = Date.parse(existing.updated_at || '') || 0;
+                if (nextUpdated > currentUpdated) {
+                    daaByDrone.set(advisory.drone_id, advisory);
+                }
+            }
+        }
+    }
+
+    function updateDaaList(advisories) {
+        const container = document.getElementById('daaList');
+        if (!container) return;
+
+        if (!advisories || advisories.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state" style="padding: 16px;">
+                    <div class="empty-state-text text-muted">No active advisories</div>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = advisories.map(advisory => {
+            const severityLabel = formatDaaSeverity(advisory.severity);
+            const actionLabel = (advisory.action || 'monitor').toUpperCase();
+            const sourceLabel = (advisory.source || 'system').toUpperCase();
+            const description = advisory.description || 'DAA advisory active';
+            return `
+                <div class="list-item" style="padding: 8px; margin-bottom: 6px;" onclick="MapControl.selectDrone('${advisory.drone_id}')">
+                    <div class="list-item-content">
+                        <div class="list-item-title" style="font-size: 12px;">${advisory.drone_id} • ${sourceLabel}</div>
+                        <div class="list-item-subtitle" style="font-size: 11px;">${actionLabel} - ${description}</div>
+                    </div>
+                    <span class="status-badge ${getDaaClass(advisory.severity)}">${severityLabel}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
     function showSelectedDronePanel(show) {
         const panel = document.getElementById('selectedDronePanel');
         if (panel) panel.style.display = show ? 'block' : 'none';
@@ -725,6 +1146,7 @@
     function updateSelectedDronePanel(data) {
         if (!data) return;
 
+        const isExternal = !!data.external;
         const nameEl = document.getElementById('selectedDroneName');
         const latEl = document.getElementById('selectedDroneLat');
         const lonEl = document.getElementById('selectedDroneLon');
@@ -734,38 +1156,88 @@
         const conformanceEl = document.getElementById('selectedDroneConformance');
         const conformanceCodeEl = document.getElementById('selectedDroneConformanceCode');
         const conformanceNoteEl = document.getElementById('selectedDroneConformanceNote');
+        const holdBtn = document.getElementById('btnHoldDrone');
+        const resumeBtn = document.getElementById('btnResumeDrone');
 
-        if (nameEl) nameEl.textContent = selectedDroneId || '--';
+        if (nameEl) {
+            nameEl.textContent = selectedDroneId
+                ? (isExternal ? `${selectedDroneId} (RID)` : selectedDroneId)
+                : '--';
+        }
         if (latEl) latEl.textContent = data.lat?.toFixed(6) || '--';
         if (lonEl) lonEl.textContent = data.lon?.toFixed(6) || '--';
         if (altEl) altEl.textContent = data.alt?.toFixed(1) || '--';
         if (speedEl) speedEl.textContent = data.speed?.toFixed(1) || '--';
-        if (statusEl) statusEl.className = 'status-dot flying';
-        const conformance = conformanceStatuses.get(selectedDroneId);
-        if (conformanceEl) {
-            conformanceEl.textContent = conformance?.status || 'unknown';
+        if (statusEl) statusEl.className = `status-dot ${getStatusClass(data.status)}`;
+        if (isExternal) {
+            if (conformanceEl) conformanceEl.textContent = 'external';
+            if (conformanceCodeEl) conformanceCodeEl.textContent = '--';
+            if (conformanceNoteEl) conformanceNoteEl.textContent = 'Remote ID traffic';
+        } else {
+            const conformance = conformanceStatuses.get(selectedDroneId);
+            if (conformanceEl) {
+                conformanceEl.textContent = conformance?.status || 'unknown';
+            }
+            if (conformanceCodeEl) {
+                conformanceCodeEl.textContent = conformance?.record?.conformance_state_code || '--';
+            }
+            if (conformanceNoteEl) {
+                conformanceNoteEl.textContent = conformance?.record?.description || '--';
+            }
         }
-        if (conformanceCodeEl) {
-            conformanceCodeEl.textContent = conformance?.record?.conformance_state_code || '--';
+
+        if (holdBtn) {
+            holdBtn.disabled = isExternal;
+            holdBtn.title = isExternal ? 'External traffic (Remote ID)' : '';
         }
-        if (conformanceNoteEl) {
-            conformanceNoteEl.textContent = conformance?.record?.description || '--';
+        if (resumeBtn) {
+            resumeBtn.disabled = isExternal;
+            resumeBtn.title = isExternal ? 'External traffic (Remote ID)' : '';
         }
+
+        updateSelectedDaaFields();
+    }
+
+    function updateSelectedDaaFields() {
+        const severityEl = document.getElementById('selectedDroneDaaSeverity');
+        const actionEl = document.getElementById('selectedDroneDaaAction');
+        const sourceEl = document.getElementById('selectedDroneDaaSource');
+        const noteEl = document.getElementById('selectedDroneDaaNote');
+
+        if (!selectedDroneId) {
+            if (severityEl) severityEl.textContent = '--';
+            if (actionEl) actionEl.textContent = '--';
+            if (sourceEl) sourceEl.textContent = '--';
+            if (noteEl) noteEl.textContent = '--';
+            return;
+        }
+
+        const selectedData = droneData.get(selectedDroneId);
+        if (selectedData && selectedData.external) {
+            if (severityEl) severityEl.textContent = 'n/a';
+            if (actionEl) actionEl.textContent = 'n/a';
+            if (sourceEl) sourceEl.textContent = 'n/a';
+            if (noteEl) noteEl.textContent = 'External traffic';
+            return;
+        }
+
+        const advisory = daaByDrone.get(selectedDroneId);
+        if (!advisory) {
+            if (severityEl) severityEl.textContent = 'clear';
+            if (actionEl) actionEl.textContent = '--';
+            if (sourceEl) sourceEl.textContent = '--';
+            if (noteEl) noteEl.textContent = '--';
+            return;
+        }
+
+        if (severityEl) severityEl.textContent = formatDaaSeverity(advisory.severity);
+        if (actionEl) actionEl.textContent = advisory.action || '--';
+        if (sourceEl) sourceEl.textContent = advisory.source || '--';
+        if (noteEl) noteEl.textContent = advisory.description || '--';
     }
 
     function getStatusClass(status) {
-        switch (status) {
-            case 'InFlight':
-            case 'Rerouting':
-                return 'flying';
-            case 'Ready':
-            case 'Registered':
-                return 'online';
-            case 'Lost':
-                return 'offline';
-            default:
-                return 'online';
-        }
+        return statusUtils.getStatusClass(status);
     }
 
     function getConformanceClass(status) {
@@ -779,22 +1251,132 @@
         }
     }
 
+    function normalizeDaaSeverity(severity) {
+        return (severity || '').toString().toLowerCase();
+    }
+
+    function getDaaSeverityRank(severity) {
+        switch (normalizeDaaSeverity(severity)) {
+            case 'critical':
+                return 3;
+            case 'warning':
+                return 2;
+            case 'advisory':
+                return 1;
+            default:
+                return 0;
+        }
+    }
+
+    function getDaaClass(severity) {
+        switch (normalizeDaaSeverity(severity)) {
+            case 'critical':
+                return 'fail';
+            case 'warning':
+                return 'warn';
+            case 'advisory':
+                return 'pending';
+            default:
+                return 'warn';
+        }
+    }
+
+    function formatDaaSeverity(severity) {
+        const normalized = normalizeDaaSeverity(severity);
+        return normalized ? normalized.toUpperCase() : 'UNKNOWN';
+    }
+
     // ========================================================================
     // Camera Controls
     // ========================================================================
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    function normalizeHeading(value) {
+        const twoPi = Math.PI * 2;
+        let heading = value % twoPi;
+        if (heading < 0) heading += twoPi;
+        return heading;
+    }
+
+    function setOrbitAxisVisible(isVisible) {
+        const axis = document.getElementById('orbitAxis');
+        if (!axis) return;
+        axis.classList.toggle('active', isVisible);
+    }
+
+    function syncOrbitCamera(clockTime) {
+        if (!viewer || cameraMode !== 'orbit' || !trackedDroneId) return;
+        const entity = droneEntities.get(trackedDroneId);
+        if (!entity || !entity.position) return;
+
+        const time = clockTime || viewer.clock.currentTime;
+        const position = entity.position.getValue(time);
+        if (!position) return;
+
+        const offset = new Cesium.HeadingPitchRange(orbitHeading, orbitPitch, orbitRange);
+        viewer.camera.lookAt(position, offset);
+    }
+
+    function resetOrbit() {
+        orbitHeading = 0;
+        orbitPitch = Cesium.Math.toRadians(-35);
+        orbitRange = 600;
+        syncOrbitCamera();
+    }
+
+    function nudgeOrbit(action) {
+        switch (action) {
+            case 'left':
+                orbitHeading = normalizeHeading(orbitHeading - ORBIT_STEP_HEADING);
+                break;
+            case 'right':
+                orbitHeading = normalizeHeading(orbitHeading + ORBIT_STEP_HEADING);
+                break;
+            case 'up':
+                orbitPitch = clamp(orbitPitch + ORBIT_STEP_PITCH, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
+                break;
+            case 'down':
+                orbitPitch = clamp(orbitPitch - ORBIT_STEP_PITCH, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
+                break;
+            case 'zoom-in':
+                orbitRange = clamp(orbitRange - ORBIT_STEP_RANGE, ORBIT_RANGE_MIN, ORBIT_RANGE_MAX);
+                break;
+            case 'zoom-out':
+                orbitRange = clamp(orbitRange + ORBIT_STEP_RANGE, ORBIT_RANGE_MIN, ORBIT_RANGE_MAX);
+                break;
+            case 'reset':
+                resetOrbit();
+                return;
+            default:
+                return;
+        }
+        syncOrbitCamera();
+    }
 
     function setCameraMode(mode) {
         cameraMode = mode;
         console.log('[Map] Camera mode:', mode);
 
+        if (!viewer) {
+            setOrbitAxisVisible(mode === 'orbit');
+            return;
+        }
+
         if (mode === 'free') {
             viewer.trackedEntity = undefined;
+            viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+            setOrbitAxisVisible(false);
         } else if (mode === 'orbit') {
-            if (trackedDroneId && droneEntities.has(trackedDroneId)) {
-                viewer.trackedEntity = droneEntities.get(trackedDroneId);
-            }
+            viewer.trackedEntity = undefined;
+            setOrbitAxisVisible(true);
+            syncOrbitCamera();
         } else if (mode === 'cockpit') {
             viewer.trackedEntity = undefined;
+            viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+            setOrbitAxisVisible(false);
         }
 
         // Update button styles
@@ -843,7 +1425,9 @@
         if (entity) {
             viewer.selectedEntity = entity;
 
-            if (cameraMode !== 'cockpit') {
+            if (cameraMode === 'orbit') {
+                syncOrbitCamera();
+            } else if (cameraMode !== 'cockpit') {
                 viewer.flyTo(entity, {
                     offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-45), 500)
                 });
@@ -857,6 +1441,11 @@
 
     async function holdDrone() {
         if (!selectedDroneId) return;
+        const data = droneData.get(selectedDroneId);
+        if (data && data.external) {
+            console.warn('[Map] HOLD disabled for external traffic');
+            return;
+        }
 
         try {
             await API.holdDrone(selectedDroneId, 30);
@@ -868,6 +1457,11 @@
 
     async function resumeDrone() {
         if (!selectedDroneId) return;
+        const data = droneData.get(selectedDroneId);
+        if (data && data.external) {
+            console.warn('[Map] RESUME disabled for external traffic');
+            return;
+        }
 
         try {
             await API.resumeDrone(selectedDroneId);
@@ -902,6 +1496,8 @@
         resumeDrone,
         setCameraMode,
         setTimeOfDay,
+        nudgeOrbit,
+        resetOrbit,
         getViewer: () => viewer
     };
 

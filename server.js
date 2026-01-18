@@ -20,7 +20,9 @@
   const BLENDER_URL = process.env.BLENDER_URL || process.env.BLENDER_BASE_URL || "http://localhost:8000";
   const ATC_URL = process.env.ATC_SERVER_URL || "http://host.docker.internal:3000";
   const ATC_PROXY_BASE = process.env.ATC_PROXY_BASE || "/api/atc";
+  const ATC_WS_URL = process.env.ATC_WS_URL || "";
   const BLENDER_AUDIENCE = process.env.PASSPORT_AUDIENCE || "testflight.flightblender.com";
+  const BLENDER_AUTH_TOKEN = process.env.BLENDER_AUTH_TOKEN || "";
   const PASSWORD_ALGO = "bcrypt";
   const PASSWORD_ROUNDS = Number(process.env.PASSWORD_ROUNDS || 10);
 
@@ -42,6 +44,11 @@
     { id: "hospital-1", name: "Helipad Zone", lat: 33.6431, lon: -117.8455, radiusM: 150 },
     { id: "stadium-1", name: "Stadium Complex", lat: 33.6505, lon: -117.8372, radiusM: 180 }
   ];
+
+  const OVERPASS_URL = process.env.OVERPASS_URL || "https://overpass-api.de/api/interpreter";
+  const POPULATION_PER_BUILDING = Number(process.env.POPULATION_PER_BUILDING || 2.4);
+  const MAX_OVERPASS_ELEMENTS = Number(process.env.MAX_OVERPASS_ELEMENTS || 3000);
+  const MAX_OBSTACLES_RESPONSE = Number(process.env.MAX_OBSTACLES_RESPONSE || 200);
 
   // Hash password helper
   function hashPassword(password) {
@@ -77,6 +84,7 @@
   }
 
   function createDevJwt(scopes) {
+    if (BLENDER_AUTH_TOKEN) return BLENDER_AUTH_TOKEN;
     const header = { alg: "RS256", typ: "JWT" };
     const payload = {
       iss: "dummy",
@@ -188,6 +196,7 @@
   app.use((req, res, next) => {
     res.locals.user = req.session.user || null;
     res.locals.atcApiBase = ATC_PROXY_BASE;
+    res.locals.atcWsBase = ATC_WS_URL;
     next();
   });
 
@@ -402,6 +411,36 @@
     }
   }
 
+  function normalizeEmail(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  async function getOwnedDroneIds(userId) {
+    if (!userId) return new Set();
+    try {
+      const response = await axios.get(`${ATC_URL}/v1/drones`, {
+        params: { owner_id: userId },
+        timeout: 8000,
+        validateStatus: () => true
+      });
+      if (!response || response.status >= 400) {
+        return new Set();
+      }
+      return new Set((response.data || []).map(drone => drone.drone_id));
+    } catch (error) {
+      console.error("[ATC Proxy] Owned drone lookup failed:", error.message);
+      return new Set();
+    }
+  }
+
+  function declarationVisibleForUser(declaration, userEmail, ownedDroneIds) {
+    if (!declaration) return false;
+    const submittedBy = normalizeEmail(declaration.submitted_by);
+    if (userEmail && submittedBy === userEmail) return true;
+    const aircraftId = declaration.aircraft_id;
+    return aircraftId && ownedDroneIds.has(aircraftId);
+  }
+
   app.put("/api/rid/subscription", requireAuth, async (req, res) => {
     const view = req.query.view;
     if (!view) {
@@ -494,6 +533,138 @@
     }
   });
 
+  app.post("/api/compliance/analyze", requireAuth, async (req, res) => {
+    const points = Array.isArray(req.body?.points) ? req.body.points : [];
+    if (!points.length) {
+      return res.status(400).json({ message: "points array required" });
+    }
+
+    const baseBounds = computeBounds(points);
+    if (!baseBounds) {
+      return res.status(400).json({ message: "invalid route points" });
+    }
+
+    const clearanceM = toNumber(req.body?.clearance_m) ?? COMPLIANCE_LIMITS.defaultClearanceM;
+    const bounds = expandBounds(baseBounds);
+    const areaKm2 = boundsAreaKm2(bounds);
+    const bbox = `${bounds.minLat},${bounds.minLon},${bounds.maxLat},${bounds.maxLon}`;
+
+    const query = `
+      [out:json][timeout:25];
+      (
+        node["man_made"~"tower|mast|chimney"](${bbox});
+        node["power"="tower"](${bbox});
+        node["aeroway"~"helipad|heliport"](${bbox});
+        way["man_made"~"tower|mast|chimney"](${bbox});
+        way["power"="tower"](${bbox});
+        way["aeroway"~"helipad|heliport"](${bbox});
+        way["building"](${bbox});
+      );
+      out center tags;
+    `;
+
+    try {
+      const response = await axios.post(OVERPASS_URL, query, {
+        headers: { "Content-Type": "text/plain" },
+        timeout: 15000,
+        maxContentLength: 2 * 1024 * 1024
+      });
+
+      const elements = Array.isArray(response.data?.elements) ? response.data.elements : [];
+      const truncated = elements.length > MAX_OVERPASS_ELEMENTS;
+      const sample = truncated ? elements.slice(0, MAX_OVERPASS_ELEMENTS) : elements;
+
+      let buildingCount = 0;
+      const obstacles = [];
+      const seen = new Set();
+      const maxDistance = Math.max(400, clearanceM * 4);
+
+      sample.forEach((element) => {
+        const tags = element.tags || {};
+        const center = elementCenter(element);
+        if (!center) return;
+
+        const isBuilding = !!tags.building;
+        if (isBuilding) buildingCount += 1;
+
+        const manMade = typeof tags.man_made === "string" ? tags.man_made : null;
+        const aeroway = typeof tags.aeroway === "string" ? tags.aeroway : null;
+        const power = typeof tags.power === "string" ? tags.power : null;
+        const levels = toNumber(tags["building:levels"]);
+        const heightM = parseHeight(tags.height)
+          ?? parseHeight(tags["height:roof"])
+          ?? (Number.isFinite(levels) ? levels * 3 : null);
+
+        const isTower = manMade && ["tower", "mast", "chimney"].includes(manMade);
+        const isPowerTower = power === "tower";
+        const isHelipad = aeroway === "helipad" || aeroway === "heliport";
+        const isTallBuilding = isBuilding && heightM !== null && heightM >= Math.max(20, clearanceM);
+
+        const obstacleType = isTower
+          ? manMade
+          : isPowerTower
+            ? "power_tower"
+            : isHelipad
+              ? aeroway
+              : isTallBuilding
+                ? "tall_building"
+                : null;
+
+        if (!obstacleType) return;
+
+        const distanceM = distanceToRouteMeters(center, points);
+        if (Number.isFinite(distanceM) && distanceM > maxDistance) {
+          return;
+        }
+
+        const baseRadius = Math.max(clearanceM, 50);
+        const radiusM = heightM
+          ? Math.max(baseRadius, Math.min(200, heightM * 1.2))
+          : baseRadius;
+
+        const key = `${obstacleType}:${center.lat.toFixed(5)}:${center.lon.toFixed(5)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+
+        obstacles.push({
+          id: `${obstacleType}-${element.id}`,
+          name: tags.name || obstacleType.replace(/_/g, " "),
+          lat: center.lat,
+          lon: center.lon,
+          heightM,
+          radiusM,
+          type: obstacleType,
+          source: "OpenStreetMap",
+          distanceM
+        });
+      });
+
+      obstacles.sort((a, b) => (a.distanceM ?? 0) - (b.distanceM ?? 0));
+      const trimmedObstacles = obstacles.slice(0, MAX_OBSTACLES_RESPONSE);
+
+      const estimatedPopulation = Math.round(buildingCount * POPULATION_PER_BUILDING);
+      const density = areaKm2 > 0 ? estimatedPopulation / areaKm2 : 0;
+
+      res.status(200).json({
+        bounds,
+        area_km2: areaKm2,
+        population: {
+          density,
+          classification: classifyDensity(density),
+          building_count: buildingCount,
+          estimated_population: estimatedPopulation,
+          source: "OpenStreetMap"
+        },
+        obstacles: trimmedObstacles,
+        obstacle_count: obstacles.length,
+        truncated
+      });
+    } catch (error) {
+      console.error("[Compliance] Overpass error:", error.message);
+      res.status(502).json({ message: "Failed to reach OSM provider" });
+    }
+  });
+
   // ========================================
   // ATC-Drone proxy (same-origin for frontend)
   // ========================================
@@ -513,13 +684,88 @@
     return false;
   }
 
+  function isAuthority(req) {
+    return req.session.user?.role === "authority";
+  }
+
+  async function canAccessDrone(req, droneId) {
+    if (!droneId) return false;
+    if (isAuthority(req)) return true;
+
+    try {
+      const response = await axios.get(`${ATC_URL}/v1/drones`, {
+        timeout: 8000,
+        validateStatus: () => true
+      });
+      if (!response || response.status >= 400) {
+        console.error("[ATC Proxy] Drone lookup failed:", response?.status);
+        return false;
+      }
+
+      const drones = Array.isArray(response.data) ? response.data : [];
+      const drone = drones.find(entry => entry.drone_id === droneId);
+      if (!drone) {
+        return true;
+      }
+      if (!drone.owner_id) {
+        return true;
+      }
+      return drone.owner_id === req.session.user?.id;
+    } catch (error) {
+      console.error("[ATC Proxy] Drone lookup error:", error.message);
+      return false;
+    }
+  }
+
+  function applyOwnerId(req, payload) {
+    if (isAuthority(req)) return payload;
+    if (!payload || typeof payload !== "object") return payload;
+    return { ...payload, owner_id: req.session.user?.id || null };
+  }
+
   app.all(`${ATC_PROXY_BASE}/*`, requireAuth, async (req, res) => {
     if (requiresAuthorityForAtc(req) && req.session.user?.role !== "authority") {
       return res.status(403).json({ message: "insufficient_role" });
     }
     const targetPath = req.originalUrl.replace(ATC_PROXY_BASE, "");
+    const requestPath = req.path.startsWith(ATC_PROXY_BASE)
+      ? req.path.slice(ATC_PROXY_BASE.length)
+      : req.path;
     const url = `${ATC_URL}${targetPath}`;
     const method = req.method.toUpperCase();
+    if (!isAuthority(req)) {
+      if (requestPath.startsWith("/v1/commands")) {
+        if (method === "GET" && requestPath === "/v1/commands") {
+          return res.status(403).json({ message: "insufficient_role" });
+        }
+        if (requestPath.startsWith("/v1/commands/ack")) {
+          return res.status(403).json({ message: "insufficient_role" });
+        }
+        const droneId = method === "GET" ? req.query.drone_id : req.body?.drone_id;
+        if (!droneId) {
+          return res.status(400).json({ message: "missing_drone_id" });
+        }
+        const allowed = await canAccessDrone(req, droneId);
+        if (!allowed) {
+          return res.status(403).json({ message: "forbidden_drone" });
+        }
+      }
+
+      if (requestPath.startsWith("/v1/flights") && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+        const droneId = req.body?.drone_id;
+        if (droneId) {
+          const allowed = await canAccessDrone(req, droneId);
+          if (!allowed) {
+            return res.status(403).json({ message: "forbidden_drone" });
+          }
+        }
+        if (req.body?.owner_id && req.body.owner_id !== req.session.user?.id) {
+          return res.status(403).json({ message: "forbidden_owner" });
+        }
+        req.body = applyOwnerId(req, req.body);
+      }
+    }
+
     const data = ["POST", "PUT", "PATCH", "DELETE"].includes(method) ? req.body : undefined;
 
     try {
@@ -593,6 +839,74 @@
       }
     });
     return points;
+  }
+
+  function computeBounds(points) {
+    if (!Array.isArray(points) || points.length === 0) return null;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLon = Infinity;
+    let maxLon = -Infinity;
+    points.forEach((point) => {
+      if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) return;
+      minLat = Math.min(minLat, point.lat);
+      maxLat = Math.max(maxLat, point.lat);
+      minLon = Math.min(minLon, point.lon);
+      maxLon = Math.max(maxLon, point.lon);
+    });
+    if (!Number.isFinite(minLat) || !Number.isFinite(minLon)) return null;
+    return { minLat, maxLat, minLon, maxLon };
+  }
+
+  function expandBounds(bounds) {
+    if (!bounds) return null;
+    const latSpan = bounds.maxLat - bounds.minLat;
+    const lonSpan = bounds.maxLon - bounds.minLon;
+    const padLat = Math.max(latSpan * 0.3, 0.002);
+    const padLon = Math.max(lonSpan * 0.3, 0.002);
+    return {
+      minLat: bounds.minLat - padLat,
+      maxLat: bounds.maxLat + padLat,
+      minLon: bounds.minLon - padLon,
+      maxLon: bounds.maxLon + padLon
+    };
+  }
+
+  function boundsAreaKm2(bounds) {
+    if (!bounds) return 0;
+    const meanLat = ((bounds.minLat + bounds.maxLat) / 2) * Math.PI / 180;
+    const metersPerDegLat = 111320;
+    const metersPerDegLon = 111320 * Math.cos(meanLat);
+    const widthM = Math.max(0, (bounds.maxLon - bounds.minLon) * metersPerDegLon);
+    const heightM = Math.max(0, (bounds.maxLat - bounds.minLat) * metersPerDegLat);
+    const areaKm2 = (widthM * heightM) / 1e6;
+    return Math.max(areaKm2, 0.15);
+  }
+
+  function parseHeight(value) {
+    if (!value) return null;
+    const match = String(value).match(/[\d.]+/);
+    if (!match) return null;
+    const height = Number(match[0]);
+    return Number.isFinite(height) ? height : null;
+  }
+
+  function elementCenter(element) {
+    if (Number.isFinite(element.lat) && Number.isFinite(element.lon)) {
+      return { lat: element.lat, lon: element.lon };
+    }
+    if (element.center && Number.isFinite(element.center.lat) && Number.isFinite(element.center.lon)) {
+      return { lat: element.center.lat, lon: element.center.lon };
+    }
+    return null;
+  }
+
+  function classifyDensity(density) {
+    if (!Number.isFinite(density)) return "unknown";
+    if (density < 200) return "rural";
+    if (density < 1000) return "suburban";
+    if (density < 2500) return "urban";
+    return "dense";
   }
 
   function toNumber(value) {
@@ -769,14 +1083,19 @@
       return { status: "pending", message: "Route missing", clearanceM: clearance };
     }
 
+    const hazardList = Array.isArray(obstacles.hazards) && obstacles.hazards.length
+      ? obstacles.hazards
+      : HAZARDS;
+
     const conflicts = [];
     const warnings = [];
     const warnBuffer = clearance * 1.5;
 
-    HAZARDS.forEach((hazard) => {
+    hazardList.forEach((hazard) => {
+      const radiusM = toNumber(hazard.radiusM) ?? toNumber(hazard.radius_m) ?? 0;
       const distance = distanceToRouteMeters(hazard, points);
-      const conflictThreshold = hazard.radiusM + clearance;
-      const warnThreshold = hazard.radiusM + warnBuffer;
+      const conflictThreshold = (radiusM || 0) + clearance;
+      const warnThreshold = (radiusM || 0) + warnBuffer;
       if (distance <= conflictThreshold) {
         conflicts.push({ id: hazard.id, name: hazard.name, distanceM: distance });
       } else if (distance <= warnThreshold) {
@@ -788,7 +1107,8 @@
     return {
       status,
       clearanceM: clearance,
-      conflicts: conflicts.concat(warnings)
+      conflicts: conflicts.concat(warnings),
+      hazards: hazardList
     };
   }
 
@@ -848,7 +1168,25 @@
           validateStatus: () => true
         }
       );
-      res.status(response.status).json(parseBlenderPayload(response.data));
+      let payload = parseBlenderPayload(response.data);
+      if (!isAuthority(req)) {
+        const userEmail = normalizeEmail(req.session.user?.email);
+        const ownedDroneIds = await getOwnedDroneIds(req.session.user?.id);
+        const records = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.results)
+              ? payload.results
+              : [];
+        const filtered = records.filter(decl => declarationVisibleForUser(decl, userEmail, ownedDroneIds));
+        if (Array.isArray(payload)) {
+          payload = filtered;
+        } else if (payload && Array.isArray(payload.results)) {
+          payload = { ...payload, results: filtered };
+        } else {
+          payload = filtered;
+        }
+      }
+      res.status(response.status).json(payload);
     } catch (error) {
       console.error("[Blender Proxy] Flight declarations error:", error.message);
       res.status(502).json({ message: "Failed to reach Flight Blender" });
@@ -866,7 +1204,15 @@
           validateStatus: () => true
         }
       );
-      res.status(response.status).json(parseBlenderPayload(response.data));
+      let payload = parseBlenderPayload(response.data);
+      if (!isAuthority(req) && response.status < 400) {
+        const userEmail = normalizeEmail(req.session.user?.email);
+        const ownedDroneIds = await getOwnedDroneIds(req.session.user?.id);
+        if (!declarationVisibleForUser(payload, userEmail, ownedDroneIds)) {
+          return res.status(403).json({ message: "forbidden_declaration" });
+        }
+      }
+      res.status(response.status).json(payload);
     } catch (error) {
       console.error("[Blender Proxy] Flight declaration detail error:", error.message);
       res.status(502).json({ message: "Failed to reach Flight Blender" });
@@ -874,6 +1220,17 @@
   });
 
   app.post("/api/blender/flight-declarations", requireAuth, async (req, res) => {
+    if (!isAuthority(req)) {
+      if (req.body?.aircraft_id) {
+        const allowed = await canAccessDrone(req, req.body.aircraft_id);
+        if (!allowed) {
+          return res.status(403).json({ message: "forbidden_drone" });
+        }
+      }
+      if (req.body && typeof req.body === "object") {
+        req.body.submitted_by = req.session.user?.email || req.body.submitted_by;
+      }
+    }
     const compliance = extractCompliance(req.body);
     const complianceResult = validateCompliance(compliance, req.body);
     if (!complianceResult.ok) {

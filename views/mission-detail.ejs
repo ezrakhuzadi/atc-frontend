@@ -1,4 +1,16 @@
-<%- include('layouts/main', { title: 'Mission Detail' , activePage: 'missions' , body: ` <div class="content-area" id="missionDetail" data-mission-id="${missionId}">
+<%- include('layouts/main', { title: 'Mission Detail' , activePage: 'missions' , head: ` <script src="/assets/Build/Cesium/Cesium.js"></script>
+    <style>
+        @import url(/assets/Build/Cesium/Widgets/widgets.css);
+
+        #missionDetailMap {
+            width: 100%;
+            height: 520px;
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+    </style>
+    `, body: ` <div class="content-area" id="missionDetail" data-mission-id="${missionId}">
     <!-- Page Header -->
     <div class="section-header">
         <div>
@@ -71,6 +83,22 @@
                         <span class="detail-label">Duration</span>
                         <span class="detail-value" id="duration">--</span>
                     </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Planner Compliance</span>
+                        <span class="detail-value" id="plannerCompliance">--</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Planner Speed</span>
+                        <span class="detail-value" id="plannerSpeed">--</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Planner Altitude</span>
+                        <span class="detail-value" id="plannerAltitude">--</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Max Obstacle</span>
+                        <span class="detail-value" id="plannerObstacle">--</span>
+                    </div>
                 </div>
             </div>
 
@@ -138,12 +166,8 @@
             <div class="card-header">
                 <div class="card-title">Route Map</div>
             </div>
-            <div class="card-body"
-                style="min-height: 500px; display: flex; align-items: center; justify-content: center; background: var(--bg-primary);">
-                <div class="empty-state">
-                    <div class="empty-state-text">Mission route visualization</div>
-                    <p class="text-muted mt-sm">Map integration coming soon</p>
-                </div>
+            <div class="card-body">
+                <div id="missionDetailMap"></div>
             </div>
         </div>
     </div>

@@ -7,6 +7,11 @@
 
     // Refresh interval (5 seconds)
     const REFRESH_INTERVAL = 5000;
+    const statusUtils = window.ATCStatus || {
+        isFlyingStatus: () => false,
+        getStatusClass: () => 'online',
+        getStatusLabel: (status) => status || 'Unknown'
+    };
 
     /**
      * Update dashboard with latest stats
@@ -60,6 +65,7 @@
         container.innerHTML = drones.slice(0, 5).map(drone => {
             const conformanceStatus = conformanceMap.get(drone.drone_id)?.status || 'unknown';
             const conformanceClass = getConformanceClass(conformanceStatus);
+            const statusLabel = statusUtils.getStatusLabel(drone.status);
             return `
                 <div class="list-item">
                     <span class="status-dot ${getStatusClass(drone.status)}"></span>
@@ -69,7 +75,7 @@
                             ${drone.lat.toFixed(5)}, ${drone.lon.toFixed(5)} @ ${drone.altitude_m.toFixed(0)}m
                         </div>
                     </div>
-                    <span class="status-badge ${getStatusClass(drone.status)}">${drone.status}</span>
+                    <span class="status-badge ${getStatusClass(drone.status)}">${statusLabel}</span>
                     <span class="status-badge ${conformanceClass}">${conformanceStatus}</span>
                 </div>
             `;
@@ -84,7 +90,7 @@
 
         // Generate activities from current state
         stats.drones.forEach(drone => {
-            if (drone.status === 'InFlight') {
+            if (statusUtils.isFlyingStatus(drone.status)) {
                 activities.push({
                     text: `${drone.drone_id} is flying`,
                     time: 'now'
@@ -167,18 +173,7 @@
     }
 
     function getStatusClass(status) {
-        switch (status) {
-            case 'InFlight':
-            case 'Rerouting':
-                return 'flying';
-            case 'Ready':
-            case 'Registered':
-                return 'online';
-            case 'Lost':
-                return 'offline';
-            default:
-                return 'online';
-        }
+        return statusUtils.getStatusClass(status);
     }
 
     function getConformanceClass(status) {

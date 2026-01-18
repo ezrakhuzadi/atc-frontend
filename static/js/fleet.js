@@ -6,6 +6,12 @@
     'use strict';
 
     const REFRESH_INTERVAL = 3000;
+    const statusUtils = window.ATCStatus || {
+        isFlyingStatus: () => false,
+        isOnlineStatus: (status) => String(status || '').toLowerCase() !== 'lost',
+        getStatusClass: () => 'online',
+        getStatusLabel: (status) => status || 'Unknown'
+    };
     let selectedDroneId = null;
     let conformanceByDrone = new Map();
     let registerInFlight = false;
@@ -21,9 +27,9 @@
             ]);
 
             // Update stats
-            const online = drones.filter(d => d.status !== 'Lost').length;
-            const flying = drones.filter(d => d.status === 'InFlight' || d.status === 'Rerouting').length;
-            const offline = drones.filter(d => d.status === 'Lost').length;
+            const online = drones.filter(d => statusUtils.isOnlineStatus(d.status)).length;
+            const flying = drones.filter(d => statusUtils.isFlyingStatus(d.status)).length;
+            const offline = drones.filter(d => statusUtils.getStatusClass(d.status) === 'offline').length;
             const nonconforming = conformance.filter(c => c.status === 'nonconforming').length;
 
             updateElement('fleetOnline', online);
@@ -67,19 +73,20 @@
             const conformance = conformanceMap?.get(drone.drone_id);
             const conformanceStatus = conformance?.status || 'unknown';
             const conformanceClass = getConformanceClass(conformanceStatus);
+            const statusLabel = statusUtils.getStatusLabel(drone.status);
             return `
             <div class="list-item" data-drone-id="${drone.drone_id}">
                 <span class="status-dot ${getStatusClass(drone.status)}"></span>
                 <div class="list-item-content">
                     <div class="list-item-title">${drone.drone_id}</div>
                     <div class="list-item-subtitle">
-                        Status: ${drone.status} | 
+                        Status: ${statusLabel} | 
                         Position: ${drone.lat.toFixed(4)}, ${drone.lon.toFixed(4)} @ ${drone.altitude_m.toFixed(0)}m |
                         Speed: ${drone.speed_mps.toFixed(1)} m/s
                     </div>
                 </div>
                 <div class="list-item-actions">
-                    <span class="status-badge ${getStatusClass(drone.status)}">${drone.status}</span>
+                    <span class="status-badge ${getStatusClass(drone.status)}">${statusLabel}</span>
                     <span class="status-badge ${conformanceClass}">${conformanceStatus}</span>
                     <button class="btn btn-ghost btn-sm" onclick="Fleet.viewOnMap('${drone.drone_id}')">
                         Map
@@ -129,11 +136,12 @@
             const conformanceStatus = conformance?.status || 'unknown';
             const conformanceClass = getConformanceClass(conformanceStatus);
             if (drone && contentEl) {
+                const statusLabel = statusUtils.getStatusLabel(drone.status);
                 contentEl.innerHTML = `
                     <div class="section-subtitle">Status</div>
                     <div class="flex items-center gap-sm mb-md">
                         <span class="status-dot ${getStatusClass(drone.status)}"></span>
-                        <span class="status-badge ${getStatusClass(drone.status)}">${drone.status}</span>
+                        <span class="status-badge ${getStatusClass(drone.status)}">${statusLabel}</span>
                     </div>
 
                     <div class="section-subtitle">Conformance</div>
@@ -195,18 +203,7 @@
     }
 
     function getStatusClass(status) {
-        switch (status) {
-            case 'InFlight':
-            case 'Rerouting':
-                return 'flying';
-            case 'Ready':
-            case 'Registered':
-                return 'online';
-            case 'Lost':
-                return 'offline';
-            default:
-                return 'online';
-        }
+        return statusUtils.getStatusClass(status);
     }
 
     function getConformanceClass(status) {

@@ -57,11 +57,63 @@ Access at: http://localhost:5000
 │   │   ├── map.js         # Cesium 3D map logic
 │   │   ├── geofences.js   # Geofence visualization
 │   │   └── api-client.js  # ATC server API client
-│   └── css/               # Stylesheets
+│   ├── css/               # Stylesheets
+│   └── planner/           # 🛩️ Flight Planner Module
+│       ├── index.html     # Planner UI
+│       └── src/
+│           ├── planner.js     # Core planner logic
+│           └── route-engine.js # A* pathfinding
 ├── routes/
 │   └── control.js         # Express routes
 └── server.js              # Main server entry
 ```
+
+---
+
+## 🛩️ Flight Planner Module
+
+**Location:** `static/planner/`
+
+A 3D drone flight path planner with FAA-compliant route validation.
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Google Maps-Style UI** | Start/Stop/Destination inputs with geocoding |
+| **A* Pathfinding** | Terrain-following routes that clear buildings |
+| **String Pulling** | Smooths grid paths into direct flight segments |
+| **Safety Corridor** | 3D tube visualization (8m operational zone) |
+| **4D Trajectory** | 1m-spaced waypoints with time offsets |
+| **FAA Validation** | Part 107 altitude compliance (< 400ft AGL) |
+
+### Quick Start
+
+1. Navigate to `http://localhost:5000/planner/`
+2. Type start address → Press Enter → Geocodes & flies to location
+3. Type destination → Press Enter → Adds waypoint
+4. Click "Calculate Route" → A* finds optimal path
+5. Click "Submit Flight Plan" → Sends to ATC server
+
+### ATC Integration Payload
+
+```json
+{
+  "flight_id": "uuid",
+  "waypoints": [...],           // Sparse key waypoints (12 points)
+  "trajectory_log": [...],      // Dense 1m trajectory (1500+ points)
+  "metadata": { "faa_compliant": true, "trajectory_points": 1523 }
+}
+```
+
+### Configuration
+
+| File | Key Settings |
+|------|--------------|
+| `planner.js` | `SAFETY_BUFFER_M: 20`, `FAA_MAX_ALTITUDE: 121` |
+| `route-engine.js` | `COST_LANE_CHANGE: 50`, `COST_PROXIMITY_PENALTY: 100` |
+
+---
 
 ## SDK Documentation
 
@@ -79,7 +131,17 @@ Visit `/docs` for the drone integration SDK documentation, including:
 - **Frontend:** Node.js, Express, EJS, CesiumJS, Chart.js
 - **3D Tiles:** Google Photorealistic 3D Tiles via Cesium Ion
 - **Backend:** Connects to ATC Server (Rust/Axum)
+- **Planner:** CesiumJS + OSM Buildings + A* Pathfinding
+
+## Development Status
+
+| Module | Status |
+|--------|--------|
+| Control Center | 🟢 Active |
+| Flight Planner | 🟢 Active - Route UX & ATC Integration |
+| ATC Server | 🟢 Active |
 
 ## License
 
 Apache 2.0
+

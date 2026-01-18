@@ -29,25 +29,40 @@
         { id: 'hospital-1', name: 'Helipad Zone', lat: 33.6431, lon: -117.8455, heightM: 40, radiusM: 150 },
         { id: 'stadium-1', name: 'Stadium Complex', lat: 33.6505, lon: -117.8372, heightM: 50, radiusM: 180 }
     ];
+    const statusUtils = window.ATCStatus || {
+        getStatusLabel: (status) => status || 'Unknown'
+    };
 
     const state = {
         viewer: null,
         waypoints: [],
         waypointEntities: [],
         routeEntity: null,
+        optimizedRoute: [],
+        routeResult: null,
+        routeCalculationInFlight: false,
         hazardEntities: [],
+        dynamicHazards: [],
         geofences: [],
         geofenceEntities: new Map(),
-        compliance: null
+        compliance: null,
+        populationInfo: null,
+        analysisInFlight: false,
+        prefillDroneId: null
     };
 
-    function init() {
+    async function init() {
         initFormDefaults();
-        initViewer();
+        await initViewer();
+        await initRoutePlanner();
         bindUi();
         bindCompliance();
-        loadDrones();
-        loadGeofences();
+        await loadDrones();
+        await loadGeofences();
+        const prefilled = applyPlannerPrefill();
+        if (!prefilled) {
+            setRouteStatus('Route not analyzed yet.');
+        }
         updateCompliance();
     }
 
@@ -73,17 +88,141 @@
         if (!select) return;
 
         try {
-            const ownerId = window.APP_USER?.id || null;
+            const ownerId = window.APP_USER?.role !== 'authority' ? window.APP_USER?.id : null;
             const drones = await API.getDrones(ownerId);
             drones.forEach((drone) => {
+                const statusLabel = statusUtils.getStatusLabel(drone.status);
                 const option = document.createElement('option');
                 option.value = drone.drone_id;
-                option.textContent = `${drone.drone_id} (${drone.status})`;
+                option.textContent = `${drone.drone_id} (${statusLabel})`;
                 select.appendChild(option);
             });
+
+            if (state.prefillDroneId) {
+                const match = Array.from(select.options).find((opt) => opt.value === state.prefillDroneId);
+                if (match) {
+                    select.value = state.prefillDroneId;
+                    state.prefillDroneId = null;
+                }
+            }
         } catch (error) {
             console.error('[MissionPlan] Failed to load drones:', error);
         }
+    }
+
+    function applyPlannerPrefill() {
+        let raw = null;
+        try {
+            raw = sessionStorage.getItem('plannerPrefill');
+        } catch (error) {
+            raw = null;
+        }
+
+        if (!raw) return false;
+
+        let data = null;
+        try {
+            data = JSON.parse(raw);
+        } catch (error) {
+            data = null;
+        }
+
+        try {
+            sessionStorage.removeItem('plannerPrefill');
+        } catch (error) {
+            // ignore
+        }
+
+        if (!data || !Array.isArray(data.waypoints) || data.waypoints.length === 0) {
+            return false;
+        }
+
+        const normalized = data.waypoints.map((wp) => ({
+            lat: Number(wp.lat),
+            lon: Number(wp.lon),
+            alt: Number(wp.alt)
+        })).filter((wp) => Number.isFinite(wp.lat) && Number.isFinite(wp.lon));
+
+        if (!normalized.length) return false;
+
+        state.waypoints = normalized.map((wp) => ({ lat: wp.lat, lon: wp.lon, alt: wp.alt }));
+        state.optimizedRoute = normalized.map((wp) => ({
+            lat: wp.lat,
+            lon: wp.lon,
+            alt: wp.alt,
+            phase: 'CRUISE',
+            prio: 1
+        }));
+        state.routeResult = { optimized: true, validation: { isValid: true } };
+
+        if (data.missionName) setInputValue('missionName', data.missionName);
+        if (data.missionType) setInputValue('missionType', data.missionType);
+        if (Number.isFinite(Number(data.operationType))) {
+            setInputValue('operationType', Number(data.operationType));
+        }
+
+        if (data.missionStart) {
+            const start = new Date(data.missionStart);
+            if (!Number.isNaN(start.getTime())) {
+                setInputValue('missionStart', toLocalInputValue(start));
+            }
+        }
+        if (data.missionEnd) {
+            const end = new Date(data.missionEnd);
+            if (!Number.isNaN(end.getTime())) {
+                setInputValue('missionEnd', toLocalInputValue(end));
+            }
+        }
+
+        if (Number.isFinite(Number(data.minAltitude))) {
+            setInputValue('minAltitude', Number(data.minAltitude).toFixed(0));
+        }
+        if (Number.isFinite(Number(data.maxAltitude))) {
+            setInputValue('maxAltitude', Number(data.maxAltitude).toFixed(0));
+        }
+        if (Number.isFinite(Number(data.cruiseSpeedMps))) {
+            setInputValue('cruiseSpeed', Number(data.cruiseSpeedMps));
+        }
+        if (Number.isFinite(Number(data.batteryCapacityMin))) {
+            setInputValue('batteryCapacity', Number(data.batteryCapacityMin));
+        }
+        if (Number.isFinite(Number(data.batteryReserveMin))) {
+            setInputValue('batteryReserve', Number(data.batteryReserveMin));
+        }
+
+        if (data.weather) {
+            setInputValue('weatherWind', data.weather.windMps);
+            setInputValue('weatherGust', data.weather.gustMps);
+            setInputValue('weatherPrecip', data.weather.precipMm);
+        }
+
+        if (Number.isFinite(Number(data.populationDensity))) {
+            setInputValue('populationDensity', Number(data.populationDensity).toFixed(0));
+        }
+        if (Number.isFinite(Number(data.obstacleClearanceM))) {
+            setInputValue('obstacleClearance', Number(data.obstacleClearanceM));
+        }
+
+        if (data.droneId) {
+            const select = document.getElementById('droneSelect');
+            if (select) {
+                const match = Array.from(select.options).find((opt) => opt.value === data.droneId);
+                if (match) {
+                    select.value = data.droneId;
+                } else {
+                    state.prefillDroneId = data.droneId;
+                }
+            } else {
+                state.prefillDroneId = data.droneId;
+            }
+        }
+
+        renderWaypoints();
+        updateRouteVisualization();
+        setRouteStatus('Planner route imported. Review compliance and submit.');
+        runComplianceAnalysis();
+
+        return true;
     }
 
     async function loadGeofences() {
@@ -101,7 +240,10 @@
     async function initViewer() {
         Cesium.Ion.defaultAccessToken = CONFIG.CESIUM_ION_TOKEN;
 
+        const terrainProvider = await Cesium.createWorldTerrainAsync();
+
         state.viewer = new Cesium.Viewer('missionMap', {
+            terrainProvider,
             globe: new Cesium.Globe(Cesium.Ellipsoid.WGS84),
             skyAtmosphere: new Cesium.SkyAtmosphere(),
             geocoder: false,
@@ -118,6 +260,7 @@
         });
 
         state.viewer.scene.globe.enableLighting = true;
+        state.viewer.scene.globe.depthTestAgainstTerrain = true;
 
         try {
             const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(CONFIG.GOOGLE_3D_TILES_ASSET_ID);
@@ -153,6 +296,18 @@
         renderHazards();
     }
 
+    async function initRoutePlanner() {
+        if (!state.viewer || !window.RoutePlanner) return;
+        try {
+            await window.RoutePlanner.init(state.viewer, {
+                defaultAltitudeM: getPlannerAltitude(),
+                loadBuildings: true
+            });
+        } catch (error) {
+            console.warn('[MissionPlan] Route planner init failed:', error);
+        }
+    }
+
     function pickPosition(position) {
         if (state.viewer.scene.pickPositionSupported) {
             const pick = state.viewer.scene.pickPosition(position);
@@ -164,11 +319,13 @@
     function bindUi() {
         const removeLastBtn = document.getElementById('removeLastWaypoint');
         const clearBtn = document.getElementById('clearWaypoints');
+        const optimizeBtn = document.getElementById('optimizeRoute');
         const submitBtn = document.getElementById('submitMission');
 
         if (removeLastBtn) {
             removeLastBtn.addEventListener('click', () => {
                 state.waypoints.pop();
+                clearOptimizedRoute();
                 renderWaypoints();
                 updateRouteVisualization();
             });
@@ -177,8 +334,16 @@
         if (clearBtn) {
             clearBtn.addEventListener('click', () => {
                 state.waypoints = [];
+                clearOptimizedRoute();
                 renderWaypoints();
                 updateRouteVisualization();
+            });
+        }
+
+        if (optimizeBtn) {
+            optimizeBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                computeOptimizedRoute();
             });
         }
 
@@ -193,6 +358,22 @@
             fetchBtn.addEventListener('click', (event) => {
                 event.preventDefault();
                 fetchWeather();
+            });
+        }
+
+        const analyzeBtn = document.getElementById('analyzeCompliance');
+        if (analyzeBtn) {
+            analyzeBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                runComplianceAnalysis();
+            });
+        }
+
+        const autoBatteryBtn = document.getElementById('autoBattery');
+        if (autoBatteryBtn) {
+            autoBatteryBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                applyAutoBattery();
             });
         }
 
@@ -219,7 +400,13 @@
             const el = document.getElementById(id);
             if (!el) return;
             const eventName = el.tagName === 'SELECT' ? 'change' : 'input';
-            el.addEventListener(eventName, updateCompliance);
+            el.addEventListener(eventName, () => {
+                if (id === 'minAltitude' || id === 'maxAltitude') {
+                    clearOptimizedRoute();
+                    updateRouteVisualization();
+                }
+                updateCompliance();
+            });
         });
 
         const populationClass = document.getElementById('populationClass');
@@ -233,8 +420,108 @@
 
     function addWaypoint({ lat, lon }) {
         state.waypoints.push({ lat, lon });
+        clearOptimizedRoute();
         renderWaypoints();
         updateRouteVisualization();
+    }
+
+    function getPlannerAltitude() {
+        const maxAltitude = getNumberValue('maxAltitude', 0);
+        const minAltitude = getNumberValue('minAltitude', 0);
+        if (Number.isFinite(maxAltitude) && maxAltitude > 0) return maxAltitude;
+        if (Number.isFinite(minAltitude) && minAltitude > 0) return minAltitude;
+        return 60;
+    }
+
+    function getActiveRoute() {
+        if (state.optimizedRoute && state.optimizedRoute.length) {
+            return state.optimizedRoute;
+        }
+        return state.waypoints;
+    }
+
+    function clearOptimizedRoute() {
+        state.optimizedRoute = [];
+        state.routeResult = null;
+        setRouteStatus('Route not analyzed yet.');
+    }
+
+    function setRouteStatus(message) {
+        const el = document.getElementById('routeStatus');
+        if (el) {
+            el.textContent = message;
+        }
+    }
+
+    async function computeOptimizedRoute() {
+        if (state.routeCalculationInFlight) return;
+        if (!state.viewer || !window.RoutePlanner) {
+            showMessage('error', 'Route planner is not available yet.');
+            return;
+        }
+        if (state.waypoints.length < 2) {
+            showMessage('error', 'Add at least two waypoints to optimize.');
+            return;
+        }
+
+        const plannedAltitude = getPlannerAltitude();
+        const plannerWaypoints = state.waypoints.map((wp) => ({
+            lat: wp.lat,
+            lon: wp.lon,
+            alt: plannedAltitude
+        }));
+
+        state.routeCalculationInFlight = true;
+        setRouteStatus('Analyzing buildings and optimizing route...');
+
+        try {
+            const result = await window.RoutePlanner.calculateRoute(plannerWaypoints, {
+                plannedAltitude,
+                defaultAltitudeM: plannedAltitude
+            });
+            state.routeResult = result;
+            state.optimizedRoute = Array.isArray(result?.waypoints) ? result.waypoints : [];
+
+            if (result.optimized) {
+                setRouteStatus('Optimized route ready.');
+            } else if (result.validation?.isValid) {
+                setRouteStatus('Straight route is clear.');
+            } else {
+                setRouteStatus('Route blocked; adjust waypoints or altitude.');
+            }
+
+            updateRouteVisualization();
+            updateCompliance();
+            syncAltitudeInputs(result);
+        } catch (error) {
+            console.error('[MissionPlan] Route optimization failed:', error);
+            setRouteStatus('Route optimization failed.');
+            showMessage('error', error.message || 'Route optimization failed.');
+        } finally {
+            state.routeCalculationInFlight = false;
+        }
+    }
+
+    function syncAltitudeInputs(result) {
+        if (!result || !Array.isArray(result.waypoints) || !result.waypoints.length) return;
+        const minAltInput = document.getElementById('minAltitude');
+        const maxAltInput = document.getElementById('maxAltitude');
+        if (!minAltInput || !maxAltInput) return;
+
+        const altitudes = result.waypoints
+            .map((wp) => Number(wp.alt))
+            .filter((alt) => Number.isFinite(alt));
+        if (!altitudes.length) return;
+
+        const minAlt = Math.min(...altitudes);
+        const maxAlt = Math.max(...altitudes);
+
+        if (!Number.isFinite(Number(minAltInput.value)) || Number(minAltInput.value) <= 0) {
+            minAltInput.value = Math.round(minAlt);
+        }
+        if (!Number.isFinite(Number(maxAltInput.value)) || Number(maxAltInput.value) <= 0) {
+            maxAltInput.value = Math.round(maxAlt);
+        }
     }
 
     function applyPopulationPreset(force) {
@@ -255,6 +542,14 @@
                 densityInput.value = preset;
             }
         }
+    }
+
+    function classifyPopulation(density) {
+        if (!Number.isFinite(density)) return 'suburban';
+        if (density < 200) return 'rural';
+        if (density < 1000) return 'suburban';
+        if (density < 2500) return 'urban';
+        return 'dense';
     }
 
     function renderWaypoints() {
@@ -303,8 +598,9 @@
             return;
         }
 
-        const positions = state.waypoints.map((wp) =>
-            Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, 0)
+        const activeRoute = getActiveRoute();
+        const positions = activeRoute.map((wp) =>
+            Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, Number.isFinite(wp.alt) ? wp.alt : 0)
         );
 
         state.waypointEntities = state.waypoints.map((wp, index) => state.viewer.entities.add({
@@ -326,11 +622,14 @@
         }));
 
         if (positions.length > 1) {
+            const routeColor = state.routeResult?.optimized
+                ? Cesium.Color.fromCssColorString('#22c55e')
+                : Cesium.Color.fromCssColorString('#f59e0b');
             state.routeEntity = state.viewer.entities.add({
                 polyline: {
                     positions,
                     width: 3,
-                    material: Cesium.Color.fromCssColorString('#22c55e')
+                    material: routeColor
                 }
             });
         }
@@ -399,7 +698,9 @@
         if (!state.viewer) return;
         clearHazards();
 
-        state.hazardEntities = HAZARDS.flatMap((hazard) => {
+        const hazards = state.dynamicHazards.length ? state.dynamicHazards : HAZARDS;
+
+        state.hazardEntities = hazards.flatMap((hazard) => {
             const position = Cesium.Cartesian3.fromDegrees(hazard.lon, hazard.lat, 0);
             const marker = state.viewer.entities.add({
                 position,
@@ -422,8 +723,8 @@
             const zone = state.viewer.entities.add({
                 position,
                 ellipse: {
-                    semiMinorAxis: hazard.radiusM,
-                    semiMajorAxis: hazard.radiusM,
+                    semiMinorAxis: hazard.radiusM || 60,
+                    semiMajorAxis: hazard.radiusM || 60,
                     material: Cesium.Color.fromCssColorString('rgba(248, 113, 113, 0.15)'),
                     outline: true,
                     outlineColor: Cesium.Color.fromCssColorString('#ef4444'),
@@ -440,6 +741,91 @@
         state.hazardEntities = [];
     }
 
+    function runComplianceAnalysis() {
+        if (state.analysisInFlight) return;
+        const activeRoute = getActiveRoute();
+        if (!activeRoute.length) {
+            const populationMeta = document.getElementById('populationMeta');
+            const obstacleMeta = document.getElementById('obstacleMeta');
+            if (populationMeta) populationMeta.textContent = 'Add at least one waypoint to analyze.';
+            if (obstacleMeta) obstacleMeta.textContent = 'Add at least one waypoint to analyze.';
+            return;
+        }
+
+        const populationMeta = document.getElementById('populationMeta');
+        const obstacleMeta = document.getElementById('obstacleMeta');
+        if (populationMeta) populationMeta.textContent = 'Analyzing population density...';
+        if (obstacleMeta) obstacleMeta.textContent = 'Scanning obstacles near route...';
+
+        const clearance = getNumberValue('obstacleClearance', 60);
+        const minAltitude = getNumberValue('minAltitude', 0);
+        const maxAltitude = getNumberValue('maxAltitude', 0);
+        const operationType = Number(document.getElementById('operationType')?.value || 1);
+
+        state.analysisInFlight = true;
+        API.getComplianceAnalysis({
+            points: activeRoute.map((wp) => ({ lat: wp.lat, lon: wp.lon })),
+            clearance_m: clearance,
+            min_altitude_m: minAltitude,
+            max_altitude_m: maxAltitude,
+            operation_type: operationType
+        })
+            .then((result) => {
+                const population = result?.population || {};
+                const density = Number(population.density);
+                if (Number.isFinite(density)) {
+                    setInputValue('populationDensity', Math.round(density));
+                    const classSelect = document.getElementById('populationClass');
+                    if (classSelect) {
+                        classSelect.value = classifyPopulation(density);
+                    }
+                    state.populationInfo = {
+                        density,
+                        classification: population.classification,
+                        buildingCount: population.building_count,
+                        estimatedPopulation: population.estimated_population,
+                        areaKm2: result.area_km2,
+                        source: population.source
+                    };
+                }
+
+                if (Array.isArray(result?.obstacles)) {
+                    state.dynamicHazards = result.obstacles.map((hazard) => ({
+                        ...hazard,
+                        radiusM: hazard.radiusM || hazard.radius_m || 60
+                    }));
+                    renderHazards();
+                }
+
+                updateCompliance();
+            })
+            .catch((error) => {
+                if (populationMeta) populationMeta.textContent = `Analysis failed: ${error.message}`;
+                if (obstacleMeta) obstacleMeta.textContent = 'Obstacle scan failed.';
+            })
+            .finally(() => {
+                state.analysisInFlight = false;
+            });
+    }
+
+    function applyAutoBattery() {
+        const cruiseSpeed = getNumberValue('cruiseSpeed', 0);
+        const route = computeRouteMetrics(getActiveRoute(), cruiseSpeed);
+        if (!route.hasRoute || cruiseSpeed <= 0) {
+            const batteryMeta = document.getElementById('batteryMeta');
+            if (batteryMeta) batteryMeta.textContent = 'Set a cruise speed and route before auto estimating.';
+            return;
+        }
+
+        const estimatedMinutes = route.estimatedMinutes;
+        const reserve = Math.max(5, Math.ceil(estimatedMinutes * 0.2));
+        const capacity = Math.ceil(estimatedMinutes + reserve + 2);
+
+        setInputValue('batteryReserve', reserve);
+        setInputValue('batteryCapacity', Math.max(capacity, getNumberValue('batteryCapacity', 0) || 0));
+        updateCompliance();
+    }
+
     function updateCompliance() {
         const snapshot = buildComplianceSnapshot();
         state.compliance = snapshot;
@@ -449,7 +835,7 @@
 
     function buildComplianceSnapshot() {
         const cruiseSpeed = getNumberValue('cruiseSpeed', 0);
-        const route = computeRouteMetrics(state.waypoints, cruiseSpeed);
+        const route = computeRouteMetrics(getActiveRoute(), cruiseSpeed);
         const weather = evaluateWeather();
         const battery = evaluateBattery(route);
         const population = evaluatePopulation();
@@ -652,6 +1038,9 @@
         const density = getNumberValue('populationDensity');
         const category = document.getElementById('populationClass')?.value || 'suburban';
         const operationMode = Number(document.getElementById('operationType')?.value || 1) === 2 ? 'BVLOS' : 'VLOS';
+        const source = state.populationInfo?.source;
+        const buildingCount = state.populationInfo?.buildingCount;
+        const areaKm2 = state.populationInfo?.areaKm2;
 
         if (!Number.isFinite(density)) {
             return { status: 'pending', message: 'Awaiting density input.', density };
@@ -671,7 +1060,12 @@
             density,
             category,
             operationMode,
+            source,
             message: `Density ${density.toFixed(0)} people/km^2 (${category}, ${operationMode})`
+                + (Number.isFinite(buildingCount) && Number.isFinite(areaKm2)
+                    ? ` • ${buildingCount} buildings / ${areaKm2.toFixed(2)} km^2`
+                    : '')
+                + (source ? ` • Source: ${source}` : '')
         };
     }
 
@@ -679,11 +1073,13 @@
         const clearance = getNumberValue('obstacleClearance', 60);
         const minAltitude = getNumberValue('minAltitude', 0);
         const maxAltitude = getNumberValue('maxAltitude', 0);
+        const activeRoute = getActiveRoute();
 
-        if (!state.waypoints.length) {
+        if (!activeRoute.length) {
             return { status: 'pending', message: 'No route to evaluate.', clearanceM: clearance, conflicts: [] };
         }
 
+        const hazards = state.dynamicHazards.length ? state.dynamicHazards : HAZARDS;
         const conflicts = [];
         const warnings = [];
         let nearest = { name: null, distanceM: Infinity };
@@ -697,8 +1093,8 @@
                 if (polygon.length < 3) {
                     return;
                 }
-                const intersects = routeIntersectsPolygon(state.waypoints, polygon);
-                const distance = distanceRouteToPolygonMeters(state.waypoints, polygon);
+                const intersects = routeIntersectsPolygon(activeRoute, polygon);
+                const distance = distanceRouteToPolygonMeters(activeRoute, polygon);
                 if (Number.isFinite(distance) && distance < nearest.distanceM) {
                     nearest = { name: geofence.name, distanceM: distance };
                 }
@@ -718,24 +1114,34 @@
                     });
                 }
             });
-        } else {
-            HAZARDS.forEach((hazard) => {
-                const distance = distanceToRouteMeters(hazard, state.waypoints);
-                const required = hazard.radiusM + clearance;
-                if (distance < required) {
-                    conflicts.push({
-                        id: hazard.id,
-                        name: hazard.name,
-                        distanceM: distance,
-                        requiredClearanceM: required,
-                        severity: 'conflict'
-                    });
-                }
-                if (distance < nearest.distanceM) {
-                    nearest = { name: hazard.name, distanceM: distance };
-                }
-            });
         }
+
+        hazards.forEach((hazard) => {
+            const hazardRadius = hazard.radiusM || 60;
+            const distance = distanceToRouteMeters(hazard, activeRoute);
+            const conflictThreshold = hazardRadius + clearance;
+            const warnThreshold = hazardRadius + clearance * 1.5;
+            if (distance < conflictThreshold) {
+                conflicts.push({
+                    id: hazard.id,
+                    name: hazard.name,
+                    distanceM: distance,
+                    requiredClearanceM: conflictThreshold,
+                    severity: 'conflict'
+                });
+            } else if (distance < warnThreshold) {
+                warnings.push({
+                    id: hazard.id,
+                    name: hazard.name,
+                    distanceM: distance,
+                    requiredClearanceM: warnThreshold,
+                    severity: 'near'
+                });
+            }
+            if (distance < nearest.distanceM) {
+                nearest = { name: hazard.name, distanceM: distance };
+            }
+        });
 
         const status = conflicts.length ? 'fail' : warnings.length ? 'warn' : 'pass';
         const nearestText = Number.isFinite(nearest.distanceM)
@@ -755,6 +1161,7 @@
         return {
             status,
             clearanceM: clearance,
+            hazards,
             conflicts: conflicts.concat(warnings),
             nearest,
             message: summary.join(' | ')
@@ -981,15 +1388,16 @@
     }
 
     function getComplianceCenter() {
-        if (state.waypoints.length) {
-            const sum = state.waypoints.reduce((acc, wp) => {
+        const activeRoute = getActiveRoute();
+        if (activeRoute.length) {
+            const sum = activeRoute.reduce((acc, wp) => {
                 acc.lat += wp.lat;
                 acc.lon += wp.lon;
                 return acc;
             }, { lat: 0, lon: 0 });
             return {
-                lat: sum.lat / state.waypoints.length,
-                lon: sum.lon / state.waypoints.length
+                lat: sum.lat / activeRoute.length,
+                lon: sum.lon / activeRoute.length
             };
         }
 
@@ -1029,7 +1437,7 @@
     }
 
     function buildGeoJson(minAltitude, maxAltitude, startTime, endTime, complianceSnapshot) {
-        const coordinates = state.waypoints.map((wp) => [wp.lon, wp.lat]);
+        const coordinates = getActiveRoute().map((wp) => [wp.lon, wp.lat]);
         let geometry = null;
 
         if (coordinates.length === 1) {
@@ -1105,7 +1513,14 @@
             return;
         }
 
-        const flightDeclarationGeoJson = buildGeoJson(minAltitude, maxAltitude, startTime, endTime, complianceSnapshot);
+        const activeRoute = getActiveRoute();
+        const routeAltitudes = activeRoute
+            .map((wp) => Number(wp.alt))
+            .filter((alt) => Number.isFinite(alt));
+        const routeMinAlt = routeAltitudes.length ? Math.min(...routeAltitudes) : minAltitude;
+        const routeMaxAlt = routeAltitudes.length ? Math.max(...routeAltitudes) : maxAltitude;
+
+        const flightDeclarationGeoJson = buildGeoJson(routeMinAlt, routeMaxAlt, startTime, endTime, complianceSnapshot);
         const submittedBy = window.APP_USER?.email || 'guest@example.com';
         const originatingParty = `${missionName} (${missionType})`;
 
@@ -1119,25 +1534,32 @@
             aircraft_id: droneId
         };
 
+        let declarationId = null;
         try {
-            await API.createFlightDeclaration(payload);
+            const declaration = await API.createFlightDeclaration(payload);
+            declarationId = declaration?.id
+                || declaration?.flight_declaration_id
+                || declaration?.flight_declaration?.id
+                || null;
         } catch (error) {
             showMessage('error', `Flight Blender submission failed: ${error.message}`);
             return;
         }
 
-        const atcWaypoints = state.waypoints.map((wp) => ({
+        const atcWaypoints = activeRoute.map((wp) => ({
             lat: wp.lat,
             lon: wp.lon,
-            altitude_m: cruiseAltitude,
+            altitude_m: Number.isFinite(wp.alt) ? wp.alt : cruiseAltitude,
             speed_mps: cruiseSpeed > 0 ? cruiseSpeed : undefined
         }));
 
+        const metadata = declarationId ? { blender_declaration_id: declarationId } : undefined;
         try {
             await API.createFlightPlan({
                 drone_id: droneId,
                 waypoints: atcWaypoints,
-                departure_time: startTime
+                departure_time: startTime,
+                metadata
             });
         } catch (error) {
             showMessage('error', `Declaration submitted, but ATC plan failed: ${error.message}`);

@@ -71,6 +71,7 @@
     let seedAttempted = false;
     let activeFilter = 'all';
     const geofenceEntities = new Map();
+    const canManage = window.APP_USER && window.APP_USER.role === 'authority';
 
     // ========================================================================
     // Initialization
@@ -129,7 +130,7 @@
         try {
             const data = await API.getGeofences();
             if (Array.isArray(data) && data.length) {
-                geofences = data.filter((gf) => gf.active !== false);
+                geofences = data;
                 renderGeofences();
                 return;
             }
@@ -174,6 +175,7 @@
             const entity = viewer.entities.add({
                 id: gf.id,
                 name: gf.name,
+                show: gf.active !== false,
                 polygon: {
                     hierarchy: Cesium.Cartesian3.fromDegreesArray(positions),
                     height: gf.lower_altitude_m || 0,
@@ -205,8 +207,9 @@
     function updateStats() {
         const totalEl = document.getElementById('geofenceTotal');
         const noFlyEl = document.getElementById('geofenceNoFly');
-        const total = geofences.length;
-        const noFly = geofences.filter((gf) => gf.geofence_type === 'no_fly_zone').length;
+        const active = geofences.filter((gf) => gf.active !== false);
+        const total = active.length;
+        const noFly = active.filter((gf) => gf.geofence_type === 'no_fly_zone').length;
         if (totalEl) totalEl.textContent = total.toString();
         if (noFlyEl) noFlyEl.textContent = noFly.toString();
     }
@@ -228,14 +231,28 @@
             const filterType = mapFilterType(gf.geofence_type);
             const colors = getGeofenceColors(gf.geofence_type);
             const label = formatTypeLabel(gf.geofence_type);
+            const statusLabel = gf.active === false ? 'Inactive' : 'Active';
+            const actionButtons = canManage
+                ? `
+                    <div class="flex gap-sm">
+                        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); GeofenceControl.toggle('${gf.id}')">
+                            ${gf.active === false ? 'Enable' : 'Disable'}
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); GeofenceControl.remove('${gf.id}')">
+                            Delete
+                        </button>
+                    </div>
+                `
+                : '';
             return `
                 <div class="geofence-item" data-type="${filterType}" data-id="${gf.id}"
                     onclick="GeofenceControl.focus('${gf.id}')">
                     <span class="status-dot" style="background: ${colors.dot};"></span>
                     <div class="list-item-content">
                         <div class="list-item-title">${gf.name}</div>
-                        <div class="list-item-subtitle">${label} | ${gf.lower_altitude_m || 0}-${gf.upper_altitude_m || 0}m</div>
+                        <div class="list-item-subtitle">${label} | ${gf.lower_altitude_m || 0}-${gf.upper_altitude_m || 0}m | ${statusLabel}</div>
                     </div>
+                    ${actionButtons}
                 </div>
             `;
         }).join('');
@@ -329,12 +346,37 @@
         });
 
         geofenceEntities.forEach((entry) => {
-            entry.entity.show = (type === 'all' || entry.filterType === type);
+            const isActive = entry.data?.active !== false;
+            entry.entity.show = (type === 'all' || entry.filterType === type) && isActive;
         });
     }
 
     function filterGeofences(type) {
         applyFilter(type);
+    }
+
+    async function toggleActive(id) {
+        const target = geofences.find((gf) => gf.id === id);
+        if (!target) return;
+        const nextActive = !(target.active !== false);
+        try {
+            const updated = await API.updateGeofence(id, { active: nextActive });
+            geofences = geofences.map((gf) => (gf.id === id ? updated : gf));
+            renderGeofences();
+        } catch (error) {
+            console.error('[Geofences] Failed to update geofence:', error);
+        }
+    }
+
+    async function removeGeofence(id) {
+        if (!confirm('Delete this geofence?')) return;
+        try {
+            await API.deleteGeofence(id);
+            geofences = geofences.filter((gf) => gf.id !== id);
+            renderGeofences();
+        } catch (error) {
+            console.error('[Geofences] Failed to delete geofence:', error);
+        }
     }
 
     // ========================================================================
@@ -344,7 +386,9 @@
     window.GeofenceControl = {
         focus: focusGeofence,
         filter: filterGeofences,
-        reset: resetView
+        reset: resetView,
+        toggle: toggleActive,
+        remove: removeGeofence
     };
 
     // ========================================================================

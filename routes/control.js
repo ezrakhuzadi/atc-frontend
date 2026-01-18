@@ -40,6 +40,11 @@ router.get('/missions/plan', (req, res) => {
     res.render('mission-plan', { user: req.session.user });
 });
 
+// Flight planner (standalone client embedded)
+router.get('/flight-planner', (req, res) => {
+    res.render('flight-planner', { user: req.session.user });
+});
+
 // Mission detail
 router.get('/missions/:id', (req, res) => {
     res.render('mission-detail', {

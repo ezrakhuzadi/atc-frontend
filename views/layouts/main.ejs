@@ -35,6 +35,7 @@
     <script>
         window.APP_USER = <%- JSON.stringify(user || null) %>;
         window.__ATC_API_BASE__ = "<%= typeof atcApiBase !== 'undefined' ? atcApiBase : '' %>";
+        window.__ATC_WS_BASE__ = "<%= typeof atcWsBase !== 'undefined' ? atcWsBase : '' %>";
     </script>
     <!-- Core Scripts -->
     <script src="/assets/js/api-client.js"></script>

@@ -28,35 +28,153 @@
         cancelled: 'Cancelled'
     };
 
+    function getOwnerContext() {
+        const user = window.APP_USER;
+        if (!user || user.role === 'authority') return null;
+        const email = (user.email || '').trim().toLowerCase();
+        return { id: user.id || null, email: email || null };
+    }
+
+    function normalizeEmail(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function parseGeoJsonValue(geo) {
+        if (!geo) return null;
+        if (typeof geo === 'string') {
+            try {
+                return JSON.parse(geo);
+            } catch (error) {
+                return null;
+            }
+        }
+        return geo;
+    }
+
+    function extractCompliance(mission) {
+        const geo = mission.flight_declaration_geojson
+            || mission.flight_declaration_geo_json
+            || mission.flight_declaration_raw_geojson;
+        const data = parseGeoJsonValue(geo);
+        return data?.features?.[0]?.properties?.compliance || null;
+    }
+
+    function getAtcPlanId(mission) {
+        const compliance = extractCompliance(mission);
+        return compliance?.atc_plan_id
+            || compliance?.atc_plan?.id
+            || compliance?.atcPlanId
+            || null;
+    }
+
+    function getPlanTimestamp(plan) {
+        const raw = plan?.created_at || plan?.departure_time || plan?.arrival_time || '';
+        const ts = Date.parse(raw);
+        return Number.isFinite(ts) ? ts : 0;
+    }
+
+    function pickLatestPlan(existing, candidate) {
+        if (!existing) return candidate;
+        if (!candidate) return existing;
+        return getPlanTimestamp(candidate) >= getPlanTimestamp(existing) ? candidate : existing;
+    }
+
+    function buildPlanIndex(plans) {
+        const byDroneId = new Map();
+        const byPlanId = new Map();
+        const byDeclarationId = new Map();
+
+        (plans || []).forEach((plan) => {
+            if (!plan) return;
+            if (plan.flight_id) {
+                const existing = byPlanId.get(plan.flight_id);
+                byPlanId.set(plan.flight_id, pickLatestPlan(existing, plan));
+            }
+            const declarationId = plan?.metadata?.blender_declaration_id;
+            if (declarationId) {
+                const existing = byDeclarationId.get(declarationId);
+                byDeclarationId.set(declarationId, pickLatestPlan(existing, plan));
+            }
+            if (plan.drone_id) {
+                const existing = byDroneId.get(plan.drone_id);
+                byDroneId.set(plan.drone_id, pickLatestPlan(existing, plan));
+            }
+        });
+
+        return { byDroneId, byPlanId, byDeclarationId };
+    }
+
+    function getPlanForMission(mission, planIndex) {
+        if (!mission || !planIndex) return null;
+        const planId = getAtcPlanId(mission);
+        if (planId && planIndex.byPlanId.has(planId)) {
+            return planIndex.byPlanId.get(planId);
+        }
+
+        const declarationId = mission.id || mission.pk || null;
+        if (declarationId && planIndex.byDeclarationId.has(declarationId)) {
+            return planIndex.byDeclarationId.get(declarationId);
+        }
+
+        const droneId = mission.aircraft_id;
+        if (droneId && planIndex.byDroneId.has(droneId)) {
+            return planIndex.byDroneId.get(droneId);
+        }
+
+        return null;
+    }
+
+    function matchesOwner(mission, owner, droneIds) {
+        if (!owner) return true;
+        const emailMatch = owner.email
+            && normalizeEmail(mission?.submitted_by) === owner.email;
+        const droneId = mission?.aircraft_id || '';
+        const droneMatch = droneId && droneIds.has(droneId);
+        return emailMatch || droneMatch;
+    }
+
     /**
      * Load and display missions from Flight Blender
      */
     async function loadMissions() {
         try {
-            const [declarations, conformance, plans] = await Promise.all([
+            const owner = getOwnerContext();
+            const ownerId = owner?.id || null;
+            const [declarations, conformance, plans, drones] = await Promise.all([
                 API.getFlightDeclarations(),
-                API.getConformance().catch(() => []),
-                API.getFlightPlans().catch(() => [])
+                API.getConformance(ownerId).catch(() => []),
+                API.getFlightPlans().catch(() => []),
+                owner ? API.getDrones(ownerId).catch(() => []) : Promise.resolve([])
             ]);
+            const visibleDroneIds = new Set((drones || []).map((drone) => drone.drone_id));
+            const scopedDeclarations = owner
+                ? (declarations || []).filter((decl) => matchesOwner(decl, owner, visibleDroneIds))
+                : declarations;
+            const scopedPlans = owner
+                ? (plans || []).filter((plan) => {
+                    if (plan?.owner_id && plan.owner_id === owner.id) return true;
+                    return visibleDroneIds.has(plan?.drone_id);
+                })
+                : plans;
             const conformanceMap = new Map((conformance || []).map(entry => [entry.drone_id, entry]));
-            const planMap = buildPlanMap(plans || []);
+            const planIndex = buildPlanIndex(scopedPlans || []);
 
             const activeStates = new Set([2, 3, 4]);
             const completedStates = new Set([5, 6, 7, 8]);
 
-            const active = declarations.filter(decl => activeStates.has(decl.state));
-            const completed = declarations.filter(decl => completedStates.has(decl.state));
-            const pending = declarations.filter(decl => !activeStates.has(decl.state) && !completedStates.has(decl.state));
+            const active = scopedDeclarations.filter(decl => activeStates.has(decl.state));
+            const completed = scopedDeclarations.filter(decl => completedStates.has(decl.state));
+            const pending = scopedDeclarations.filter(decl => !activeStates.has(decl.state) && !completedStates.has(decl.state));
 
-            renderMissionSection('activeMissions', active, 'active', conformanceMap, planMap);
-            renderMissionSection('pendingMissions', pending, 'pending', conformanceMap, planMap);
-            renderMissionSection('completedMissions', completed, 'completed', conformanceMap, planMap);
+            renderMissionSection('activeMissions', active, 'active', conformanceMap, planIndex);
+            renderMissionSection('pendingMissions', pending, 'pending', conformanceMap, planIndex);
+            renderMissionSection('completedMissions', completed, 'completed', conformanceMap, planIndex);
         } catch (error) {
             console.error('[Missions] Load failed:', error);
         }
     }
 
-    function renderMissionSection(containerId, missions, type, conformanceMap, planMap) {
+    function renderMissionSection(containerId, missions, type, conformanceMap, planIndex) {
         const container = document.getElementById(containerId);
         if (!container) return;
 
@@ -90,9 +208,21 @@
             const conformanceDetail = conformance?.detail
                 ? `<div class="list-item-subtitle">${conformance.detail}</div>`
                 : '';
-            const plan = getPlanSummary(mission, planMap);
-            const planLine = plan
-                ? `<div class="list-item-subtitle"><span class="status-badge ${plan.className}">ATC Plan ${plan.label}</span></div>`
+            const plan = getPlanForMission(mission, planIndex);
+            const planSummary = getPlanSummary(plan);
+            const planLine = planSummary
+                ? `<div class="list-item-subtitle"><span class="status-badge ${planSummary.className}">ATC Plan ${planSummary.label}</span></div>`
+                : mission.aircraft_id
+                    ? `<div class="list-item-subtitle"><span class="status-badge warn">ATC Plan Not Submitted</span></div>`
+                    : '';
+            const planMeta = plan?.metadata || null;
+            const complianceBadge = planMeta?.faa_compliant === true
+                ? `<span class="status-badge pass">Planner Compliant</span>`
+                : planMeta?.faa_compliant === false
+                    ? `<span class="status-badge fail">Planner Noncompliant</span>`
+                    : '';
+            const plannerComplianceLine = complianceBadge
+                ? `<div class="list-item-subtitle">${complianceBadge}</div>`
                 : '';
             const detailsButton = missionId
                 ? `<button class="btn btn-ghost btn-sm" onclick="window.location.href='/control/missions/${missionId}'">Details</button>`
@@ -109,6 +239,7 @@
                         ${conformanceLine}
                         ${conformanceDetail}
                         ${planLine}
+                        ${plannerComplianceLine}
                     </div>
                     <div class="list-item-actions">
                         ${detailsButton}
@@ -123,27 +254,7 @@
         }).join('');
     }
 
-    function buildPlanMap(plans) {
-        const map = new Map();
-        plans.forEach((plan) => {
-            if (!plan || !plan.drone_id) return;
-            const existing = map.get(plan.drone_id);
-            if (!existing) {
-                map.set(plan.drone_id, plan);
-                return;
-            }
-            const currentTime = Date.parse(plan.created_at || '') || 0;
-            const existingTime = Date.parse(existing.created_at || '') || 0;
-            if (currentTime >= existingTime) {
-                map.set(plan.drone_id, plan);
-            }
-        });
-        return map;
-    }
-
-    function getPlanSummary(mission, planMap) {
-        if (!planMap || !mission?.aircraft_id) return null;
-        const plan = planMap.get(mission.aircraft_id);
+    function getPlanSummary(plan) {
         if (!plan) return null;
         const status = String(plan.status || '').toLowerCase();
         const label = PLAN_STATUS_LABELS[status] || 'Unknown';
@@ -168,7 +279,9 @@
     }
 
     function getComplianceSummary(mission) {
-        const geo = mission.flight_declaration_geojson || mission.flight_declaration_raw_geojson;
+        const geo = mission.flight_declaration_geojson
+            || mission.flight_declaration_geo_json
+            || mission.flight_declaration_raw_geojson;
         if (!geo) return null;
         let data = geo;
         if (typeof geo === 'string') {

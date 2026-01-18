@@ -273,7 +273,7 @@
             const dot = document.getElementById('serverStatusDot');
             const text = document.getElementById('serverStatusText');
             try {
-                const response = await fetch('/v1/drones');
+                const response = await fetch('/api/atc/v1/drones');
                 dot.className = response.ok ? 'status-dot online' : 'status-dot offline';
                 text.textContent = response.ok ? 'Connected' : 'Error';
             } catch (e) {

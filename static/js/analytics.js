@@ -13,6 +13,28 @@
     let charts = {};
     let latestReport = null;
 
+    function getOwnerContext() {
+        const user = window.APP_USER;
+        if (!user || user.role === 'authority') return null;
+        const email = (user.email || '').trim().toLowerCase();
+        return { id: user.id || null, email: email || null };
+    }
+
+    function normalizeEmail(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function filterDeclarationsByOwner(declarations, owner, droneIds) {
+        if (!owner) return declarations;
+        return (declarations || []).filter((decl) => {
+            const emailMatch = owner.email
+                && normalizeEmail(decl?.submitted_by) === owner.email;
+            const droneId = decl?.aircraft_id || '';
+            const droneMatch = droneId && droneIds.has(droneId);
+            return emailMatch || droneMatch;
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         if (typeof Chart === 'undefined') {
             console.error('[Analytics] Chart.js not loaded');
@@ -36,20 +58,37 @@
         setLoadingState();
 
         const range = getDateRange();
-        const [declarations, conflicts, conformance, drones] = await Promise.all([
+        const owner = getOwnerContext();
+        const ownerId = owner?.id || null;
+        const [declarations, conflicts, conformance, drones, geofences] = await Promise.all([
             API.getFlightDeclarations().catch(() => []),
-            API.getConflicts().catch(() => []),
-            API.getConformance().catch(() => []),
-            API.getDrones().catch(() => [])
+            API.getConflicts(ownerId).catch(() => []),
+            API.getConformance(ownerId).catch(() => []),
+            API.getDrones(ownerId).catch(() => []),
+            API.getGeofences().catch(() => [])
         ]);
 
-        const report = buildReport(range, declarations, conflicts, conformance, drones);
+        const visibleDroneIds = new Set((drones || []).map((drone) => drone.drone_id));
+        const scopedDeclarations = owner
+            ? filterDeclarationsByOwner(declarations, owner, visibleDroneIds)
+            : declarations;
+        const scopedConflicts = filterConflictsByVisibleDrones(conflicts, drones, owner);
+        const report = buildReport(range, scopedDeclarations, scopedConflicts, conformance, drones, geofences);
         latestReport = report;
 
         updateStats(report.metrics);
         renderCharts(report);
         renderFleetTable(report);
         renderEventLog(report.events);
+    }
+
+    function filterConflictsByVisibleDrones(conflicts, drones, owner) {
+        if (!owner) return conflicts;
+        const visibleIds = new Set((drones || []).map(drone => drone.drone_id));
+        if (!visibleIds.size) return [];
+        return (conflicts || []).filter(conflict =>
+            visibleIds.has(conflict.drone1_id) || visibleIds.has(conflict.drone2_id)
+        );
     }
 
     function setLoadingState() {
@@ -78,14 +117,14 @@
         }
     }
 
-    function buildReport(range, declarations, conflicts, conformance, drones) {
+    function buildReport(range, declarations, conflicts, conformance, drones, geofences) {
         const normalized = normalizeDeclarations(declarations || []);
         const filtered = normalized.filter((decl) => isWithinRange(decl.start, range));
 
         const metrics = buildMetrics(filtered, conflicts || []);
         const chartsData = buildCharts(range, filtered, conflicts || []);
         const fleet = buildFleetMetrics(drones || [], filtered);
-        const events = buildEvents(filtered, conflicts || [], conformance || []);
+        const events = buildEvents(filtered, conflicts || [], conformance || [], geofences || []);
 
         return {
             range,
@@ -143,7 +182,7 @@
         });
     }
 
-    function buildEvents(flights, conflicts, conformance) {
+    function buildEvents(flights, conflicts, conformance, geofences) {
         const events = [];
 
         flights.forEach((flight) => {
@@ -180,6 +219,18 @@
                 type: 'conformance',
                 title,
                 subtitle,
+                timestamp
+            });
+        });
+
+        geofences.forEach((geofence) => {
+            const timestamp = parseDate(geofence.created_at);
+            if (!timestamp) return;
+            const status = geofence.active === false ? 'Disabled' : 'Active';
+            events.push({
+                type: 'geofence',
+                title: `${status} geofence`,
+                subtitle: geofence.name || geofence.id,
                 timestamp
             });
         });
