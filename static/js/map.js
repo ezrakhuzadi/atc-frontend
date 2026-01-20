@@ -45,6 +45,9 @@
     let viewer = null;
     let realtimeSocket = null;
     let realtimeRetryTimer = null;
+    let wsReconnectAttempts = 0;
+    let wsConnectionStableTimer = null;
+    let wsLastConnectTime = null;
 
     // Drone tracking
     const droneEntities = new Map();  // droneId -> Cesium.Entity
@@ -387,6 +390,12 @@
             realtimeSocket.close();
         }
 
+        // Clear any pending stability timer from previous connection
+        if (wsConnectionStableTimer) {
+            clearTimeout(wsConnectionStableTimer);
+            wsConnectionStableTimer = null;
+        }
+
         try {
             realtimeSocket = new WebSocket(wsUrl);
         } catch (error) {
@@ -397,10 +406,21 @@
 
         realtimeSocket.onopen = () => {
             console.log('[Map] Realtime stream connected.');
+            wsLastConnectTime = Date.now();
+
             if (realtimeRetryTimer) {
                 clearTimeout(realtimeRetryTimer);
                 realtimeRetryTimer = null;
             }
+
+            // Reset attempts only after connection has been stable for 5 seconds
+            wsConnectionStableTimer = setTimeout(() => {
+                if (realtimeSocket && realtimeSocket.readyState === WebSocket.OPEN) {
+                    console.log('[Map] WebSocket connection stable, resetting reconnect attempts.');
+                    wsReconnectAttempts = 0;
+                }
+                wsConnectionStableTimer = null;
+            }, 5000);
         };
 
         realtimeSocket.onmessage = (event) => {
@@ -429,7 +449,12 @@
         };
 
         realtimeSocket.onclose = () => {
-            console.warn('[Map] Realtime stream disconnected. Retrying...');
+            console.warn('[Map] Realtime stream disconnected. Retrying with backoff...');
+            // Cancel stability timer if connection closes before 5 seconds
+            if (wsConnectionStableTimer) {
+                clearTimeout(wsConnectionStableTimer);
+                wsConnectionStableTimer = null;
+            }
             scheduleRealtimeReconnect(wsUrl);
         };
 
@@ -440,12 +465,31 @@
         };
     }
 
+    /**
+     * Schedule WebSocket reconnection with exponential backoff and jitter.
+     * Formula: delay = min(maxDelay, baseDelay * 2^attempts) + jitter
+     * 
+     * This prevents thundering herd when multiple clients reconnect simultaneously.
+     */
     function scheduleRealtimeReconnect(wsUrl) {
         if (realtimeRetryTimer) return;
+
+        const baseDelay = 1000;    // 1 second
+        const maxDelay = 30000;    // 30 seconds
+        const jitter = Math.random() * 500;  // 0-500ms random jitter
+
+        // Calculate delay with exponential backoff
+        const exponentialDelay = Math.min(maxDelay, baseDelay * Math.pow(2, wsReconnectAttempts));
+        const delay = exponentialDelay + jitter;
+
+        console.log(`[Map] Reconnecting in ${Math.round(delay)}ms (attempt ${wsReconnectAttempts + 1})`);
+
+        wsReconnectAttempts++;
+
         realtimeRetryTimer = setTimeout(() => {
             realtimeRetryTimer = null;
             connectRealtime(wsUrl);
-        }, CONFIG.WS_RETRY_MS);
+        }, delay);
     }
 
     function resolveWsUrl() {
