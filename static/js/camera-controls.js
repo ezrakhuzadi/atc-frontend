@@ -1,12 +1,18 @@
 /**
  * ATC Camera Controls
- * Shared UI widget that adds simple heading/tilt/zoom controls to any Cesium.Viewer.
+ * Shared UI widget that adds orbit-style heading/tilt/zoom controls to any Cesium.Viewer.
+ *
+ * Key behavior:
+ * - N/E/S/W + arrows ORBIT AROUND A TARGET POINT (so you can see buildings from different sides).
+ * - Target defaults to the screen center pick, and stays pinned until you recenter.
+ * - Free mode exits Cesium lookAtTransform for normal navigation.
  */
 
 (function () {
     'use strict';
 
     const TWO_PI = Math.PI * 2;
+    const STATE = new WeakMap();
 
     function toRad(deg) {
         return (deg * Math.PI) / 180;
@@ -22,15 +28,6 @@
         return value;
     }
 
-    function shortestHeadingDelta(from, to) {
-        const a = normalizeHeading(from);
-        const b = normalizeHeading(to);
-        let delta = b - a;
-        if (delta > Math.PI) delta -= TWO_PI;
-        if (delta < -Math.PI) delta += TWO_PI;
-        return delta;
-    }
-
     function ensurePositionedContainer(container) {
         if (!container || typeof window === 'undefined') return;
         const style = window.getComputedStyle(container);
@@ -39,47 +36,162 @@
         }
     }
 
-    function applyZoom(camera, direction, amount) {
-        if (!camera) return;
-        if (direction === 'in') {
-            if (typeof camera.zoomIn === 'function') {
-                camera.zoomIn(amount);
-                return;
-            }
-            if (typeof camera.moveForward === 'function') {
-                camera.moveForward(amount);
-            }
-            return;
-        }
-        if (typeof camera.zoomOut === 'function') {
-            camera.zoomOut(amount);
-            return;
-        }
-        if (typeof camera.moveBackward === 'function') {
-            camera.moveBackward(amount);
-        }
+    function getState(viewer) {
+        if (STATE.has(viewer)) return STATE.get(viewer);
+        const state = {
+            mode: 'free',
+            collapsed: false,
+            target: null,
+            headingRad: 0,
+            pitchRad: toRad(-45),
+            rangeM: 1200
+        };
+        STATE.set(viewer, state);
+        return state;
     }
 
-    function applyPitchDelta(camera, deltaRad) {
-        if (!camera || !Number.isFinite(deltaRad) || deltaRad === 0) return;
-        if (deltaRad > 0 && typeof camera.rotateUp === 'function') {
-            camera.rotateUp(deltaRad);
-            return;
+    function pickWorldPosition(viewer, windowPosition) {
+        const Cesium = window.Cesium;
+        if (!Cesium || !viewer) return null;
+
+        const scene = viewer.scene;
+        if (!scene) return null;
+
+        if (scene.pickPositionSupported) {
+            try {
+                const picked = scene.pickPosition(windowPosition);
+                if (picked) return picked;
+            } catch (err) {
+                // Ignore pickPosition failures; fall back to globe.
+            }
         }
-        if (deltaRad < 0 && typeof camera.rotateDown === 'function') {
-            camera.rotateDown(-deltaRad);
+
+        const ray = viewer.camera.getPickRay(windowPosition);
+        if (ray) {
+            const globePick = scene.globe && typeof scene.globe.pick === 'function'
+                ? scene.globe.pick(ray, scene)
+                : null;
+            if (globePick) return globePick;
         }
+
+        if (typeof viewer.camera.pickEllipsoid === 'function' && scene.globe && scene.globe.ellipsoid) {
+            return viewer.camera.pickEllipsoid(windowPosition, scene.globe.ellipsoid);
+        }
+
+        return null;
     }
 
-    function applyHeadingDelta(camera, deltaRad) {
-        if (!camera || !Number.isFinite(deltaRad) || deltaRad === 0) return;
-        if (deltaRad > 0 && typeof camera.rotateRight === 'function') {
-            camera.rotateRight(deltaRad);
-            return;
+    function pickScreenCenter(viewer) {
+        const Cesium = window.Cesium;
+        if (!Cesium || !viewer || !viewer.scene || !viewer.scene.canvas) return null;
+        const canvas = viewer.scene.canvas;
+        const center = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+        return pickWorldPosition(viewer, center);
+    }
+
+    function tryEntityPosition(entity, viewer) {
+        const Cesium = window.Cesium;
+        if (!Cesium || !entity) return null;
+        const time = viewer && viewer.clock ? viewer.clock.currentTime : null;
+        try {
+            if (entity.position && typeof entity.position.getValue === 'function' && time) {
+                return entity.position.getValue(time);
+            }
+        } catch (err) {
+            return null;
         }
-        if (deltaRad < 0 && typeof camera.rotateLeft === 'function') {
-            camera.rotateLeft(-deltaRad);
+        return null;
+    }
+
+    function resolveDefaultTarget(viewer) {
+        if (!viewer) return null;
+        const selected = viewer.selectedEntity ? tryEntityPosition(viewer.selectedEntity, viewer) : null;
+        if (selected) return selected;
+
+        const tracked = viewer.trackedEntity ? tryEntityPosition(viewer.trackedEntity, viewer) : null;
+        if (tracked) return tracked;
+
+        return pickScreenCenter(viewer);
+    }
+
+    function computeOrbitFromCamera(viewer, target) {
+        const Cesium = window.Cesium;
+        if (!Cesium || !viewer || !target) return null;
+
+        const camera = viewer.camera;
+        if (!camera) return null;
+
+        const transform = Cesium.Transforms.eastNorthUpToFixedFrame(target);
+        const inverse = Cesium.Matrix4.inverseTransformation(transform, new Cesium.Matrix4());
+        const localPos = Cesium.Matrix4.multiplyByPoint(inverse, camera.positionWC, new Cesium.Cartesian3());
+
+        const x = localPos.x;
+        const y = localPos.y;
+        const z = localPos.z;
+        const horizontal = Math.sqrt(x * x + y * y);
+        const range = Math.sqrt(horizontal * horizontal + z * z);
+        if (!Number.isFinite(range) || range <= 0) return null;
+
+        const heading = normalizeHeading(Math.atan2(x, y));
+        const pitch = horizontal > 0 ? -Math.atan2(z, horizontal) : toRad(-89);
+
+        return { heading, pitch, range };
+    }
+
+    function applyOrbit(viewer, state) {
+        const Cesium = window.Cesium;
+        if (!Cesium || !viewer || !state || !state.target) return;
+
+        const pitchMin = toRad(-89);
+        const pitchMax = toRad(-3);
+        const rangeMin = 30;
+        const rangeMax = 750000;
+
+        state.headingRad = normalizeHeading(state.headingRad);
+        state.pitchRad = clamp(state.pitchRad, pitchMin, pitchMax);
+        state.rangeM = clamp(state.rangeM, rangeMin, rangeMax);
+
+        viewer.camera.lookAt(
+            state.target,
+            new Cesium.HeadingPitchRange(state.headingRad, state.pitchRad, state.rangeM)
+        );
+    }
+
+    function setMode(rootEl, viewer, state, mode) {
+        const Cesium = window.Cesium;
+        if (!viewer || !state) return;
+
+        state.mode = mode;
+
+        if (mode === 'free' && Cesium && viewer.camera) {
+            viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
         }
+
+        const freeBtn = rootEl.querySelector('[data-action="mode"][data-mode="free"]');
+        const orbitBtn = rootEl.querySelector('[data-action="mode"][data-mode="orbit"]');
+        if (freeBtn) freeBtn.classList.toggle('active', mode === 'free');
+        if (orbitBtn) orbitBtn.classList.toggle('active', mode === 'orbit');
+    }
+
+    function ensureOrbit(rootEl, viewer, state, { recenter = false } = {}) {
+        if (!viewer || !state) return false;
+
+        if (recenter || !state.target) {
+            state.target = resolveDefaultTarget(viewer);
+        }
+
+        if (!state.target) return false;
+
+        const orbitNow = computeOrbitFromCamera(viewer, state.target);
+        if (orbitNow) {
+            state.headingRad = orbitNow.heading;
+            state.pitchRad = orbitNow.pitch;
+            state.rangeM = orbitNow.range;
+        }
+
+        setMode(rootEl, viewer, state, 'orbit');
+        applyOrbit(viewer, state);
+        return true;
     }
 
     function attach(viewer, options = {}) {
@@ -91,12 +203,13 @@
 
         ensurePositionedContainer(container);
 
+        const state = getState(viewer);
         const config = {
-            headingStepRad: Number.isFinite(options.headingStepRad) ? options.headingStepRad : toRad(10),
-            pitchStepRad: Number.isFinite(options.pitchStepRad) ? options.pitchStepRad : toRad(6),
-            zoomStepM: Number.isFinite(options.zoomStepM) ? options.zoomStepM : 120,
+            headingStepRad: Number.isFinite(options.headingStepRad) ? options.headingStepRad : toRad(12),
+            pitchStepRad: Number.isFinite(options.pitchStepRad) ? options.pitchStepRad : toRad(7),
+            zoomFactor: Number.isFinite(options.zoomFactor) ? options.zoomFactor : 0.18,
             defaultHeadingRad: Number.isFinite(options.defaultHeadingRad) ? options.defaultHeadingRad : 0,
-            defaultPitchRad: Number.isFinite(options.defaultPitchRad) ? options.defaultPitchRad : toRad(-45)
+            defaultPitchRad: Number.isFinite(options.defaultPitchRad) ? options.defaultPitchRad : toRad(-38)
         };
 
         const root = document.createElement('div');
@@ -110,14 +223,20 @@
                 </div>
 
                 <div class="atc-camera-controls__body">
-                    <div class="atc-camera-controls__row atc-camera-controls__row--presets" role="group" aria-label="Cardinal views">
-                        <button type="button" class="atc-camera-controls__btn" data-action="heading" data-heading-deg="0" title="North">N</button>
-                        <button type="button" class="atc-camera-controls__btn" data-action="heading" data-heading-deg="90" title="East">E</button>
-                        <button type="button" class="atc-camera-controls__btn" data-action="heading" data-heading-deg="180" title="South">S</button>
-                        <button type="button" class="atc-camera-controls__btn" data-action="heading" data-heading-deg="270" title="West">W</button>
+                    <div class="atc-camera-controls__row atc-camera-controls__row--mode" role="group" aria-label="Camera mode">
+                        <button type="button" class="atc-camera-controls__chip active" data-action="mode" data-mode="free" title="Free camera">Free</button>
+                        <button type="button" class="atc-camera-controls__chip" data-action="mode" data-mode="orbit" title="Orbit around a target point">Orbit</button>
+                        <button type="button" class="atc-camera-controls__chip" data-action="recenter" title="Recenter orbit target to screen center">Target</button>
                     </div>
 
-                    <div class="atc-camera-controls__grid" role="group" aria-label="Rotate and tilt">
+                    <div class="atc-camera-controls__row atc-camera-controls__row--presets" role="group" aria-label="Orbit to cardinal view">
+                        <button type="button" class="atc-camera-controls__btn" data-action="orbit-cardinal" data-heading-deg="0" title="View from North (looking South)">N</button>
+                        <button type="button" class="atc-camera-controls__btn" data-action="orbit-cardinal" data-heading-deg="90" title="View from East (looking West)">E</button>
+                        <button type="button" class="atc-camera-controls__btn" data-action="orbit-cardinal" data-heading-deg="180" title="View from South (looking North)">S</button>
+                        <button type="button" class="atc-camera-controls__btn" data-action="orbit-cardinal" data-heading-deg="270" title="View from West (looking East)">W</button>
+                    </div>
+
+                    <div class="atc-camera-controls__grid" role="group" aria-label="Orbit controls">
                         <div></div>
                         <button type="button" class="atc-camera-controls__btn" data-action="tilt-up" title="Tilt up">▲</button>
                         <div></div>
@@ -152,6 +271,7 @@
             toggle.textContent = isCollapsed ? '+' : '—';
             toggle.setAttribute('aria-expanded', String(!isCollapsed));
             toggle.title = isCollapsed ? 'Expand controls' : 'Collapse controls';
+            state.collapsed = isCollapsed;
         }
 
         root.addEventListener('click', (event) => {
@@ -159,49 +279,67 @@
             if (!target) return;
 
             const action = target.getAttribute('data-action');
-            const camera = viewer.camera;
-            if (!camera) return;
 
             switch (action) {
                 case 'toggle':
                     toggleCollapsed();
                     break;
+                case 'mode': {
+                    const mode = target.getAttribute('data-mode');
+                    if (mode !== 'free' && mode !== 'orbit') return;
+                    if (mode === 'orbit') {
+                        ensureOrbit(root, viewer, state, { recenter: false });
+                    } else {
+                        setMode(root, viewer, state, 'free');
+                    }
+                    break;
+                }
+                case 'recenter':
+                    ensureOrbit(root, viewer, state, { recenter: true });
+                    break;
                 case 'rotate-left':
-                    applyHeadingDelta(camera, -config.headingStepRad);
+                    if (!ensureOrbit(root, viewer, state)) return;
+                    state.headingRad = normalizeHeading(state.headingRad - config.headingStepRad);
+                    applyOrbit(viewer, state);
                     break;
                 case 'rotate-right':
-                    applyHeadingDelta(camera, config.headingStepRad);
+                    if (!ensureOrbit(root, viewer, state)) return;
+                    state.headingRad = normalizeHeading(state.headingRad + config.headingStepRad);
+                    applyOrbit(viewer, state);
                     break;
                 case 'tilt-up':
-                    applyPitchDelta(camera, config.pitchStepRad);
+                    if (!ensureOrbit(root, viewer, state)) return;
+                    state.pitchRad = state.pitchRad + config.pitchStepRad;
+                    applyOrbit(viewer, state);
                     break;
                 case 'tilt-down':
-                    applyPitchDelta(camera, -config.pitchStepRad);
+                    if (!ensureOrbit(root, viewer, state)) return;
+                    state.pitchRad = state.pitchRad - config.pitchStepRad;
+                    applyOrbit(viewer, state);
                     break;
                 case 'zoom-in':
-                    applyZoom(camera, 'in', config.zoomStepM);
+                    if (!ensureOrbit(root, viewer, state)) return;
+                    state.rangeM = state.rangeM - Math.max(25, state.rangeM * config.zoomFactor);
+                    applyOrbit(viewer, state);
                     break;
                 case 'zoom-out':
-                    applyZoom(camera, 'out', config.zoomStepM);
+                    if (!ensureOrbit(root, viewer, state)) return;
+                    state.rangeM = state.rangeM + Math.max(25, state.rangeM * config.zoomFactor);
+                    applyOrbit(viewer, state);
                     break;
-                case 'heading': {
+                case 'orbit-cardinal': {
                     const deg = Number(target.getAttribute('data-heading-deg'));
                     if (!Number.isFinite(deg)) return;
-                    const desired = toRad(deg);
-                    const delta = shortestHeadingDelta(camera.heading, desired);
-                    applyHeadingDelta(camera, delta);
+                    if (!ensureOrbit(root, viewer, state)) return;
+                    state.headingRad = normalizeHeading(toRad(deg));
+                    applyOrbit(viewer, state);
                     break;
                 }
                 case 'reset': {
-                    const headingDelta = shortestHeadingDelta(camera.heading, config.defaultHeadingRad);
-                    applyHeadingDelta(camera, headingDelta);
-
-                    const pitchNow = camera.pitch;
-                    if (Number.isFinite(pitchNow)) {
-                        const clampedDefaultPitch = clamp(config.defaultPitchRad, toRad(-89), toRad(25));
-                        const pitchDelta = clampedDefaultPitch - pitchNow;
-                        applyPitchDelta(camera, pitchDelta);
-                    }
+                    if (!ensureOrbit(root, viewer, state)) return;
+                    state.headingRad = normalizeHeading(config.defaultHeadingRad);
+                    state.pitchRad = config.defaultPitchRad;
+                    applyOrbit(viewer, state);
                     break;
                 }
                 default:
@@ -209,6 +347,7 @@
             }
         });
 
+        setMode(root, viewer, state, state.mode);
         return root;
     }
 
