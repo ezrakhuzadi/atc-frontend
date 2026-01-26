@@ -301,10 +301,19 @@
   userStore.ensureDefaults(hashPassword, PASSWORD_ALGO, seedUsers);
 
   let app = express();
+  app.disable("x-powered-by");
 
   // Provide defaults even if a render bypasses res.locals middleware.
   app.locals.routeEngineConfig = ROUTE_ENGINE_CONFIG || {};
   app.locals.routePlannerConfig = ROUTE_PLANNER_CONFIG || {};
+
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
+    next();
+  });
 
   app.use((req, res, next) => {
     console.log(`[REQUEST] ${req.method} ${req.url}`);
