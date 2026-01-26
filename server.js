@@ -9,6 +9,8 @@
   const fs = require("fs");
   const bcrypt = require("bcryptjs");
   const axios = require("axios");
+  const net = require("net");
+  const tls = require("tls");
   const { initUserStore } = require("./util/user-store");
   const { requireAuth, requireRole } = require("./util/auth");
   require("dotenv").config();
@@ -324,7 +326,7 @@
   }
   const sessionSecret = rawSessionSecret || crypto.randomBytes(32).toString("hex");
 
-  app.use(session({
+  const sessionMiddleware = session({
     store: new FileStore({
       path: sessionPath,
       logFn: () => { }
@@ -336,14 +338,17 @@
       secure: process.env.NODE_ENV === "production",
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
-  }));
+  });
+  app.use(sessionMiddleware);
 
   // Make user available to all views
   app.use((req, res, next) => {
     res.locals.user = req.session.user || null;
     res.locals.atcApiBase = ATC_PROXY_BASE;
-    res.locals.atcWsBase = ATC_WS_URL;
-    res.locals.atcWsToken = ATC_WS_TOKEN;
+    // Always use a same-origin WS proxy so browsers don't need Docker-internal DNS.
+    res.locals.atcWsBase = ATC_PROXY_BASE;
+    // Keep the server-side WS token out of the browser; the proxy injects it upstream.
+    res.locals.atcWsToken = "";
     res.locals.demoMode = DEMO_MODE;
     res.locals.cesiumIonToken = CESIUM_ION_TOKEN;
     res.locals.complianceLimits = COMPLIANCE_LIMITS;
@@ -693,7 +698,11 @@
     { methods: ["GET", "POST"], pattern: /^\/v1\/geofences$/ },
     { methods: ["GET", "PUT", "DELETE"], pattern: /^\/v1\/geofences\/[^/]+$/ },
     { methods: ["POST"], pattern: /^\/v1\/flights\/plan$/ },
-    { methods: ["GET", "POST"], pattern: /^\/v1\/flights$/ }
+    { methods: ["GET", "POST"], pattern: /^\/v1\/flights$/ },
+    { methods: ["POST"], pattern: /^\/v1\/operational_intents\/reserve$/ },
+    { methods: ["POST"], pattern: /^\/v1\/operational_intents\/[^/]+\/confirm$/ },
+    { methods: ["POST"], pattern: /^\/v1\/operational_intents\/[^/]+\/cancel$/ },
+    { methods: ["PUT"], pattern: /^\/v1\/operational_intents\/[^/]+$/ }
   ];
 
   function isAllowedAtcProxy(method, requestPath) {
@@ -710,6 +719,9 @@
         return 180_000;
       }
       if (path === "/v1/geofences/check-route" || path === "/v1/flights/plan") {
+        return 60_000;
+      }
+      if (path === "/v1/operational_intents/reserve") {
         return 60_000;
       }
     }
@@ -736,6 +748,9 @@
       return true;
     }
     if (requestPath === "/v1/flights" && method === "POST") {
+      return true;
+    }
+    if (requestPath.startsWith("/v1/operational_intents") && ["POST", "PUT"].includes(method)) {
       return true;
     }
     return false;
@@ -770,6 +785,31 @@
       return drone.owner_id === req.session.user?.id;
     } catch (error) {
       console.error("[ATC Proxy] Drone lookup error:", error.message);
+      return false;
+    }
+  }
+
+  async function canAccessFlight(req, flightId) {
+    if (!flightId) return false;
+    if (isAuthority(req)) return true;
+
+    try {
+      const ownerId = req.session.user?.id;
+      if (!ownerId) return false;
+      const response = await axios.get(`${ATC_URL}/v1/flights`, {
+        params: { owner_id: ownerId },
+        timeout: 8000,
+        validateStatus: () => true
+      });
+      if (!response || response.status >= 400) {
+        console.error("[ATC Proxy] Flight lookup failed:", response?.status);
+        return false;
+      }
+
+      const plans = Array.isArray(response.data) ? response.data : [];
+      return plans.some(entry => entry.flight_id === flightId);
+    } catch (error) {
+      console.error("[ATC Proxy] Flight lookup error:", error.message);
       return false;
     }
   }
@@ -823,6 +863,40 @@
           return res.status(403).json({ message: "forbidden_owner" });
         }
         req.body = applyOwnerId(req, req.body);
+      }
+
+      if (requestPath.startsWith("/v1/operational_intents")) {
+        if (requestPath === "/v1/operational_intents/reserve" && method === "POST") {
+          const droneId = req.body?.drone_id;
+          if (droneId) {
+            const allowed = await canAccessDrone(req, droneId);
+            if (!allowed) {
+              return res.status(403).json({ message: "forbidden_drone" });
+            }
+          }
+          if (req.body?.owner_id && req.body.owner_id !== req.session.user?.id) {
+            return res.status(403).json({ message: "forbidden_owner" });
+          }
+          req.body = applyOwnerId(req, req.body);
+        } else if (method === "PUT") {
+          const droneId = req.body?.drone_id;
+          if (droneId) {
+            const allowed = await canAccessDrone(req, droneId);
+            if (!allowed) {
+              return res.status(403).json({ message: "forbidden_drone" });
+            }
+          }
+          if (req.body?.owner_id && req.body.owner_id !== req.session.user?.id) {
+            return res.status(403).json({ message: "forbidden_owner" });
+          }
+          req.body = applyOwnerId(req, req.body);
+        } else if (method === "POST") {
+          const flightId = requestPath.split("/").filter(Boolean)[2] || null;
+          const allowed = await canAccessFlight(req, flightId);
+          if (!allowed) {
+            return res.status(403).json({ message: "forbidden_flight" });
+          }
+        }
       }
     }
 
@@ -1045,10 +1119,165 @@
   });
 
   // Constants
-  const port = process.env.PORT || 5000;
+  const port = process.env.PORT || 5050;
+  const atcWsProxyPath = `${ATC_PROXY_BASE}/v1/ws`;
   let server = app.listen(port, "0.0.0.0", () => {
     console.log(`[SERVER] Listening on 0.0.0.0:${port}`);
     console.log(`[CONFIG] ATC_URL: ${ATC_URL}`);
+  });
+
+  // ========================================
+  // WebSocket Proxy (same-origin)
+  // ========================================
+  function parseUpgradeUrl(req) {
+    try {
+      return new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    } catch {
+      return null;
+    }
+  }
+
+  function rejectUpgrade(socket, status = 401, message = "Unauthorized") {
+    try {
+      socket.write(`HTTP/1.1 ${status} ${message}\r\n\r\n`);
+    } finally {
+      socket.destroy();
+    }
+  }
+
+  function buildAtcWsPath(user, clientUrl) {
+    const params = new URLSearchParams();
+    const isAuthority = user?.role === "authority";
+    const requestedOwnerId = clientUrl.searchParams.get("owner_id");
+    const ownerId = isAuthority ? requestedOwnerId : (user?.id || null);
+    const droneId = clientUrl.searchParams.get("drone_id");
+
+    if (ownerId) params.set("owner_id", ownerId);
+    if (droneId) params.set("drone_id", droneId);
+
+    const query = params.toString();
+    return query ? `/v1/ws?${query}` : "/v1/ws";
+  }
+
+  server.on("upgrade", (req, socket, head) => {
+    const url = parseUpgradeUrl(req);
+    if (!url) {
+      rejectUpgrade(socket, 400, "Bad Request");
+      return;
+    }
+    if (url.pathname !== atcWsProxyPath) {
+      return;
+    }
+
+    // Reuse express-session to authenticate the websocket upgrade.
+    const res = {
+      getHeader: () => undefined,
+      setHeader: () => {},
+      writeHead: () => {},
+      end: () => {}
+    };
+
+    sessionMiddleware(req, res, () => {
+      const user = req.session?.user;
+      if (!user) {
+        rejectUpgrade(socket, 401, "Unauthorized");
+        return;
+      }
+
+      let atcUrl;
+      try {
+        atcUrl = new URL(ATC_URL);
+      } catch (err) {
+        console.error("[ATC WS Proxy] Invalid ATC_URL:", err?.message || err);
+        rejectUpgrade(socket, 502, "Bad Gateway");
+        return;
+      }
+
+      const isTls = atcUrl.protocol === "https:";
+      const port = atcUrl.port
+        ? Number(atcUrl.port)
+        : (isTls ? 443 : 80);
+      const host = atcUrl.hostname;
+      const targetPath = buildAtcWsPath(user, url);
+      const upstreamHeaders = [];
+      const forwardHeader = (name, value) => {
+        if (!value) return;
+        upstreamHeaders.push(`${name}: ${value}`);
+      };
+
+      const secKey = req.headers["sec-websocket-key"];
+      const secVersion = req.headers["sec-websocket-version"];
+      if (!secKey || !secVersion) {
+        rejectUpgrade(socket, 400, "Bad Request");
+        return;
+      }
+
+      const secExtensions = req.headers["sec-websocket-extensions"];
+      const secProtocol = req.headers["sec-websocket-protocol"];
+      const origin = req.headers.origin;
+
+      forwardHeader("Host", atcUrl.host || `${host}:${port}`);
+      forwardHeader("Connection", "Upgrade");
+      forwardHeader("Upgrade", "websocket");
+      forwardHeader("Sec-WebSocket-Key", secKey);
+      forwardHeader("Sec-WebSocket-Version", secVersion);
+      forwardHeader("Sec-WebSocket-Extensions", secExtensions);
+      forwardHeader("Sec-WebSocket-Protocol", secProtocol);
+      forwardHeader("Origin", origin);
+      if (ATC_WS_TOKEN) {
+        forwardHeader("Authorization", `Bearer ${ATC_WS_TOKEN}`);
+      }
+
+      const requestLines = [
+        `GET ${targetPath} HTTP/1.1`,
+        ...upstreamHeaders,
+        "\r\n"
+      ];
+      const requestPayload = requestLines.join("\r\n");
+
+      const connectOptions = { host, port };
+      const upstream = isTls
+        ? tls.connect({
+          ...connectOptions,
+          servername: host,
+          rejectUnauthorized: process.env.NODE_ENV === "production"
+        })
+        : net.connect(connectOptions);
+
+      const teardown = () => {
+        socket.destroy();
+        upstream.destroy();
+      };
+
+      upstream.on("error", (err) => {
+        console.error("[ATC WS Proxy] Upstream error:", err?.message || err);
+        teardown();
+      });
+      socket.on("error", () => {
+        teardown();
+      });
+
+      upstream.on("connect", () => {
+        socket.setKeepAlive(true, 30_000);
+        upstream.setKeepAlive(true, 30_000);
+
+        upstream.write(requestPayload);
+        if (head && head.length) {
+          upstream.write(head);
+        }
+
+        const handshakeTimer = setTimeout(() => {
+          console.error("[ATC WS Proxy] Upstream handshake timeout");
+          teardown();
+        }, 10_000);
+        upstream.once("data", () => {
+          clearTimeout(handshakeTimer);
+        });
+
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+      });
+    });
   });
 
 

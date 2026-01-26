@@ -62,13 +62,13 @@ For local demos only, you can allow the legacy defaults by setting:
 │   ├── js/                # Frontend JavaScript
 │   │   ├── map.js         # Cesium 3D map logic
 │   │   ├── geofences.js   # Geofence visualization
-│   │   └── api-client.js  # ATC server API client
+│   │   ├── api-client.js  # ATC server API client
+│   │   └── route-planner.js # Server-backed A* routing
 │   ├── css/               # Stylesheets
 │   └── planner/           # 🛩️ Flight Planner Module
 │       ├── index.html     # Planner UI
 │       └── src/
 │           ├── planner.js     # Core planner logic
-│           └── route-engine.js # A* pathfinding
 ├── routes/
 │   └── control.js         # Express routes
 └── server.js              # Main server entry
@@ -117,10 +117,9 @@ A 3D drone flight path planner with FAA-compliant route validation.
 | File | Key Settings |
 |------|--------------|
 | `planner.js` | `SAFETY_BUFFER_M: 20`, `FAA_MAX_ALTITUDE: 121` |
-| `route-engine.js` | `COST_LANE_CHANGE: 50`, `COST_PROXIMITY_PENALTY: 100` |
+| `route-planner.js` | Calls `/v1/routes/plan` for A* routing |
 
 Runtime overrides:
-- `ATC_ROUTE_ENGINE_CONFIG` (JSON) to override route-engine constants
 - `ATC_ROUTE_PLANNER_CONFIG` (JSON) to override planner constants
 
 ---

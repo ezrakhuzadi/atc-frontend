@@ -270,6 +270,7 @@
                 <a href="#sdk-registration" class="docs-nav-link">Registration</a>
                 <a href="#sdk-telemetry" class="docs-nav-link">Telemetry</a>
                 <a href="#sdk-flight-plans" class="docs-nav-link">Flight Plans</a>
+                <a href="#sdk-operational-intents" class="docs-nav-link">Operational Intents</a>
                 <a href="#sdk-commands" class="docs-nav-link">Commands</a>
                 <a href="#sdk-command-stream" class="docs-nav-link">Command Stream</a>
                 <a href="#sdk-utilities" class="docs-nav-link">Utilities</a>
@@ -289,6 +290,7 @@
                 <a href="#api-compliance" class="docs-nav-link">Compliance</a>
                 <a href="#api-routes" class="docs-nav-link">Routes</a>
                 <a href="#api-flights" class="docs-nav-link">Flights</a>
+                <a href="#api-operational-intents" class="docs-nav-link">Operational Intents</a>
                 <a href="#api-rid" class="docs-nav-link">RID</a>
                 <a href="#api-websockets" class="docs-nav-link">WebSockets</a>
                 <a href="#api-admin" class="docs-nav-link">Admin</a>
@@ -394,6 +396,11 @@ cargo run -p atc-server --release</pre>
                 <li><strong>WebSocket token</strong> (optional) can be required for realtime streaming via
                     <code class="code-inline">/v1/ws</code>. Configure <code class="code-inline">ATC_WS_TOKEN</code> and
                     <code class="code-inline">ATC_REQUIRE_WS_TOKEN</code>.</li>
+                <li><strong>Admin token</strong> is required for control-plane endpoints (flight plan submission,
+                    operational intent reservation/confirmation, issuing commands, and admin reset). Send as
+                    <code class="code-inline">Authorization: Bearer &lt;admin_token&gt;</code>. Configure
+                    <code class="code-inline">ATC_ADMIN_TOKEN</code> (if unset, the server generates a random token at
+                    startup and logs it).</li>
             </ul>
 
             <h2 id="client">AtcClient</h2>
@@ -463,6 +470,11 @@ client.send_telemetry(&telemetry).await?;</pre>
 
             <h2 id="sdk-flight-plans">Flight Plans</h2>
             <p>Create a flight plan for conflict detection and compliance checks.</p>
+            <div class="callout warning">
+                <strong>Admin token required:</strong> Flight plan submission is an admin-protected endpoint. Set
+                <code class="code-inline">client.set_admin_token(Some("...".to_string()))</code> before calling
+                <code class="code-inline">create_flight_plan</code>.
+            </div>
             <div class="code-block">
                 <pre>use atc_core::models::{FlightPlanRequest, Waypoint};
 
@@ -484,6 +496,28 @@ let plan = client.create_flight_plan(&request).await?;</pre>
             </div>
             <p>If the client is registered, <code class="code-inline">create_flight_plan</code> overwrites the
                 request's <code class="code-inline">drone_id</code> with the registered ID.</p>
+
+            <h2 id="sdk-operational-intents">Operational Intents</h2>
+            <p>Operational intents provide a reserve → confirm flow for strategic deconfliction.</p>
+            <ul>
+                <li><strong>Reserve</strong> creates a <code class="code-inline">reserved</code> slot (may delay the
+                    departure time and populate <code class="code-inline">metadata.scheduled_delay_s</code>).</li>
+                <li><strong>Confirm</strong> transitions the reservation to <code class="code-inline">approved</code>
+                    after re-checking that the slot is still conflict-free.</li>
+                <li><strong>Expiry</strong>: reserved slots expire automatically based on
+                    <code class="code-inline">ATC_OI_RESERVATION_TTL_SECS</code> (see
+                    <code class="code-inline">metadata.reservation_expires_at</code>).</li>
+            </ul>
+            <div class="code-block">
+                <pre>// Requires admin token (same as flight plan submission)
+client.set_admin_token(Some("admin-token".to_string()));
+
+let reserved = client.reserve_operational_intent(&request).await?;
+println!("Reserved {} at {}", reserved.flight_id, reserved.departure_time);
+
+let approved = client.confirm_operational_intent(&reserved.flight_id).await?;
+println!("Confirmed status {}", approved.status);</pre>
+            </div>
 
             <h2 id="sdk-commands">Commands</h2>
             <p>Poll and acknowledge commands from the Control Center.</p>
@@ -526,6 +560,7 @@ while let Some(cmd) = stream.next_command().await? {
                 <li><code class="code-inline">session_token()</code> - Returns the session token from registration.</li>
                 <li><code class="code-inline">set_owner_id()</code> - Updates the owner ID for telemetry.</li>
                 <li><code class="code-inline">set_registration_token()</code> - Sets the registration token header.</li>
+                <li><code class="code-inline">set_admin_token()</code> - Sets the admin token for protected endpoints.</li>
             </ul>
 
             <h2 id="api-health">API: Health</h2>
@@ -1170,9 +1205,15 @@ while let Some(cmd) = stream.next_command().await? {
                 <code class="code-inline">ATC_REQUIRE_BLENDER_DECLARATION</code> is enabled (default), you must provide
                 <code class="code-inline">metadata.blender_declaration_id</code> that exists in Flight Blender.
             </div>
-            <p>Flight status values: <code class="code-inline">pending</code>, <code class="code-inline">approved</code>,
-                <code class="code-inline">active</code>, <code class="code-inline">completed</code>,
-                <code class="code-inline">rejected</code>, <code class="code-inline">cancelled</code>.</p>
+            <p>Flight status values: <code class="code-inline">reserved</code>, <code class="code-inline">pending</code>,
+                <code class="code-inline">approved</code>, <code class="code-inline">active</code>,
+                <code class="code-inline">completed</code>, <code class="code-inline">rejected</code>,
+                <code class="code-inline">cancelled</code>.</p>
+            <div class="callout info">
+                <strong>Admin token:</strong> Flight creation endpoints are admin-protected. On conflict, the server
+                returns <code class="code-inline">409</code> with a <code class="code-inline">plan</code> payload so you
+                can inspect the rejection.
+            </div>
 
             <div class="api-endpoint">
                 <div class="api-endpoint-header">
@@ -1260,6 +1301,57 @@ while let Some(cmd) = stream.next_command().await? {
   }
 }</pre>
                     </div>
+                </div>
+            </div>
+
+            <h2 id="api-operational-intents">API: Operational Intents</h2>
+            <p>Operational intents are admin-protected endpoints that support a reserve → confirm flow for strategic scheduling.</p>
+            <div class="callout info">
+                <strong>Priority:</strong> Set <code class="code-inline">metadata.scheduling_priority</code> (lower =
+                higher priority). Higher-priority reservations may push lower-priority reservations later when
+                reserving/updating.
+            </div>
+
+            <div class="api-endpoint">
+                <div class="api-endpoint-header">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/v1/operational_intents/reserve</span>
+                </div>
+                <div class="api-endpoint-body">
+                    <p>Reserve a conflict-free slot. Request body matches <code class="code-inline">/v1/flights/plan</code>.</p>
+                    <p>On conflict, returns <code class="code-inline">409</code> with a <code class="code-inline">plan</code> payload.</p>
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <div class="api-endpoint-header">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/v1/operational_intents/{flight_id}/confirm</span>
+                </div>
+                <div class="api-endpoint-body">
+                    <p>Confirm a reserved slot (transitions <code class="code-inline">reserved</code> → <code class="code-inline">approved</code>).
+                        Re-checks conflicts before confirmation.</p>
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <div class="api-endpoint-header">
+                    <span class="api-method put">PUT</span>
+                    <span class="api-path">/v1/operational_intents/{flight_id}</span>
+                </div>
+                <div class="api-endpoint-body">
+                    <p>Update a reserved slot. Request body matches <code class="code-inline">/v1/flights/plan</code>.</p>
+                    <p>On conflict, returns <code class="code-inline">409</code> with a <code class="code-inline">plan</code> payload.</p>
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <div class="api-endpoint-header">
+                    <span class="api-method post">POST</span>
+                    <span class="api-path">/v1/operational_intents/{flight_id}/cancel</span>
+                </div>
+                <div class="api-endpoint-body">
+                    <p>Cancel an operational intent (transitions to <code class="code-inline">cancelled</code>).</p>
                 </div>
             </div>
 
@@ -1418,6 +1510,8 @@ while let Some(cmd) = stream.next_command().await? {
             <p>Create and submit a flight plan for compliance and conflict checks.</p>
             <div class="code-block">
                 <pre>use atc_core::models::{FlightPlanRequest, Waypoint};
+
+client.set_admin_token(Some("admin-token".to_string()));
 
 let request = FlightPlanRequest {
     drone_id: "DRONE0001".to_string(),

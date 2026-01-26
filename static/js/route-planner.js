@@ -58,7 +58,6 @@
         DEFAULT_SAFETY_BUFFER_M: 20,
         DEFAULT_SAMPLE_SPACING_M: 5,
         DEFAULT_LANE_RADIUS_M: 90,
-        MAX_LANE_RADIUS_M: 1800,
         LANE_SPACING_M: 15,
         LANE_EXPANSION_STEP_M: 100,
         TILESET_LOAD_TIMEOUT_MS: 15000,
@@ -170,7 +169,6 @@
             lane_spacing_m: config.LANE_SPACING_M,
             sample_spacing_m: config.DEFAULT_SAMPLE_SPACING_M,
             safety_buffer_m: config.DEFAULT_SAFETY_BUFFER_M,
-            max_lane_radius_m: config.MAX_LANE_RADIUS_M,
             lane_expansion_step_m: config.LANE_EXPANSION_STEP_M
         };
 

@@ -43,7 +43,8 @@
 
         // ATC Server Endpoint
         ATC_SERVER_URL: '',
-        SUBMIT_FLIGHT_ENDPOINT: '/v1/flights',
+        // Reserve an operational intent (slot), then confirm from Mission Control.
+        SUBMIT_FLIGHT_ENDPOINT: '/v1/operational_intents/reserve',
         DRONE_SPEED_MPS: 15
     }, root.__ROUTE_PLANNER_CONFIG__ || safeParentValue('__ROUTE_PLANNER_CONFIG__') || {});
 
@@ -977,11 +978,26 @@
         const capacityMin = batteryMetrics.capacityMin;
         const clearanceM = resolveComplianceClearance();
 
-        // Construct the payload matching backend schema
+        const effectiveDroneId = selectedDroneId
+            || routeData?.droneId
+            || routeData?.drone_id
+            || (`PLANNER-${flightId}`);
+
+        // FlightPlanRequest payload for /v1/operational_intents/reserve
         const payload = {
-            flight_id: flightId,
-            waypoints: waypointsWithTime,
-            trajectory_log: trajectoryLog,  // High-fidelity 1m-spaced trajectory
+            drone_id: effectiveDroneId,
+            waypoints: waypointsWithTime.map((wp) => ({
+                lat: wp.lat,
+                lon: wp.lon,
+                altitude_m: wp.alt,
+                speed_mps: droneSpeed
+            })),
+            trajectory_log: trajectoryLog.map((pt) => ({
+                lat: pt.lat,
+                lon: pt.lon,
+                altitude_m: pt.alt,
+                time_offset_s: pt.time_offset
+            })),
             metadata: {
                 drone_speed_mps: droneSpeed,
                 total_distance_m: Math.round(totalDistance),
@@ -996,12 +1012,13 @@
                 battery_reserve_min: reserveMin,
                 clearance_m: clearanceM,
                 compliance_override_enabled: false
-            }
+            },
+            departure_time: routeData?.departure_time
+                || routeData?.start_datetime
+                || routeData?.missionStart
+                || undefined
         };
 
-        if (selectedDroneId) {
-            payload.metadata.drone_id = selectedDroneId;
-        }
         const blenderDeclarationId = routeData && (routeData.blenderDeclarationId || routeData.blender_declaration_id);
         if (blenderDeclarationId) {
             payload.metadata.blender_declaration_id = blenderDeclarationId;
@@ -1024,7 +1041,14 @@
 
             if (!response.ok) {
                 const text = await response.text();
-                throw new Error(`ATC Server returned ${response.status}: ${text || response.statusText}`);
+                let parsed = null;
+                try {
+                    parsed = text ? JSON.parse(text) : null;
+                } catch (error) {
+                    parsed = null;
+                }
+                const detail = parsed?.message || parsed?.error || text || response.statusText;
+                throw new Error(`ATC Server returned ${response.status}: ${detail}`);
             }
 
             let result = {};

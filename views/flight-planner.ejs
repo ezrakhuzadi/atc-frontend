@@ -328,6 +328,11 @@
 
                 const start = new Date(Date.now() + 5 * 60 * 1000);
                 const end = new Date(start.getTime() + Math.max(durationSec, 300) * 1000);
+                const startIso = start.toISOString();
+                const endIso = end.toISOString();
+                routeData.start_datetime = startIso;
+                routeData.end_datetime = endIso;
+                routeData.departure_time = startIso;
 
                 const altRange = getAltitudeRange(points);
                 const selectedDroneId = win?.FlightPlanner?.getSelectedDroneId?.();
@@ -351,12 +356,12 @@
                         points,
                         altRange.minAlt,
                         altRange.maxAlt,
-                        start.toISOString(),
-                        end.toISOString(),
+                        startIso,
+                        endIso,
                         compliance
                     ),
-                    start_datetime: start.toISOString(),
-                    end_datetime: end.toISOString(),
+                    start_datetime: startIso,
+                    end_datetime: endIso,
                     submitted_by: win?.APP_USER?.email || 'planner@atc.local',
                     type_of_operation: COMPLIANCE_DEFAULTS.operationType,
                     originating_party: 'Planner ' + flightId,
@@ -374,8 +379,8 @@
                     missionName: 'Planner ' + flightId,
                     missionType: 'survey',
                     operationType: COMPLIANCE_DEFAULTS.operationType,
-                    missionStart: start.toISOString(),
-                    missionEnd: end.toISOString(),
+                    missionStart: startIso,
+                    missionEnd: endIso,
                     batteryCapacityMin: COMPLIANCE_DEFAULTS.batteryCapacityMin,
                     batteryReserveMin: COMPLIANCE_DEFAULTS.batteryReserveMin,
                     weather: weatherCheck ? {

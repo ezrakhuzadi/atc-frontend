@@ -103,61 +103,6 @@
             align-items: center;
         }
 
-        .orbit-axis {
-            display: none;
-            flex-direction: column;
-            gap: 6px;
-            background: rgba(15, 23, 42, 0.85);
-            backdrop-filter: blur(8px);
-            padding: 8px;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-        }
-
-        .orbit-axis.active {
-            display: flex;
-        }
-
-        .orbit-axis-label {
-            font-size: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-muted);
-        }
-
-        .orbit-axis-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 28px);
-            grid-template-rows: repeat(3, 28px);
-            gap: 4px;
-            justify-items: center;
-            align-items: center;
-        }
-
-        .orbit-axis-zoom {
-            display: flex;
-            justify-content: center;
-            gap: 4px;
-        }
-
-        .orbit-axis-btn {
-            width: 28px;
-            height: 28px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.15s;
-        }
-
-        .orbit-axis-btn:hover {
-            background: var(--bg-hover);
-            color: var(--text-primary);
-        }
     </style>
     `,
     body: `
@@ -169,17 +114,6 @@
 
             <!-- Camera Controls Overlay -->
             <div class="map-controls-overlay">
-                <!-- Camera Mode -->
-                <div class="control-group">
-                    <span class="control-label">Camera</span>
-                    <button class="control-btn active" id="cam-free-btn"
-                        onclick="MapControl.setCameraMode('free')">Free</button>
-                    <button class="control-btn" id="cam-orbit-btn"
-                        onclick="MapControl.setCameraMode('orbit')">Orbit</button>
-                    <button class="control-btn" id="cam-cockpit-btn"
-                        onclick="MapControl.setCameraMode('cockpit')">Cockpit</button>
-                </div>
-
                 <!-- Time of Day -->
                 <div class="control-group">
                     <span class="control-label">Time</span>
@@ -188,22 +122,6 @@
                     <button class="control-btn" id="tod-day-btn" onclick="MapControl.setTimeOfDay('day')">Day</button>
                     <button class="control-btn" id="tod-night-btn"
                         onclick="MapControl.setTimeOfDay('night')">Night</button>
-                </div>
-
-                <!-- Orbit Axis Controls -->
-                <div class="orbit-axis" id="orbitAxis">
-                    <div class="orbit-axis-label">Orbit Axis</div>
-                    <div class="orbit-axis-grid">
-                        <button class="orbit-axis-btn" title="Pitch up" onclick="MapControl.nudgeOrbit('up')">^</button>
-                        <div></div>
-                        <button class="orbit-axis-btn" title="Zoom in" onclick="MapControl.nudgeOrbit('zoom-in')">+</button>
-                        <button class="orbit-axis-btn" title="Yaw left" onclick="MapControl.nudgeOrbit('left')">&lt;</button>
-                        <button class="orbit-axis-btn" title="Reset orbit" onclick="MapControl.nudgeOrbit('reset')">0</button>
-                        <button class="orbit-axis-btn" title="Yaw right" onclick="MapControl.nudgeOrbit('right')">&gt;</button>
-                        <button class="orbit-axis-btn" title="Pitch down" onclick="MapControl.nudgeOrbit('down')">v</button>
-                        <div></div>
-                        <button class="orbit-axis-btn" title="Zoom out" onclick="MapControl.nudgeOrbit('zoom-out')">-</button>
-                    </div>
                 </div>
             </div>
         </div>

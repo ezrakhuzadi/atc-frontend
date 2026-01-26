@@ -209,6 +209,35 @@ const API = (function () {
     /**
      * Make an API request
      */
+    async function readJsonBody(response) {
+        const text = await response.text();
+        if (!text) return { text: '', data: null };
+        try {
+            return { text, data: JSON.parse(text) };
+        } catch (error) {
+            return { text, data: null };
+        }
+    }
+
+    function buildApiErrorMessage(status, payload, fallbackText) {
+        if (payload && typeof payload === 'object') {
+            const title = payload.message || payload.error;
+            const violations = Array.isArray(payload.violations) ? payload.violations : [];
+            if (violations.length) {
+                const messages = violations
+                    .slice(0, 3)
+                    .map((v) => v?.message || v?.type || JSON.stringify(v))
+                    .filter(Boolean)
+                    .join('; ');
+                return `${title || 'Request rejected'} (${status}): ${messages}`;
+            }
+            if (title) return `${title} (${status})`;
+            return `Request failed (${status})`;
+        }
+        if (fallbackText) return `Request failed (${status}): ${fallbackText}`;
+        return `API error: ${status}`;
+    }
+
     async function request(endpoint, options = {}) {
         const url = `${ATC_SERVER_URL}${endpoint}`;
 
@@ -223,13 +252,19 @@ const API = (function () {
             });
 
             if (!response.ok) {
-                throw new Error(`API error: ${response.status}`);
+                const { text, data } = await readJsonBody(response);
+                const message = buildApiErrorMessage(response.status, data, text);
+                const error = new Error(message);
+                error.status = response.status;
+                error.payload = data || text || null;
+                throw error;
             }
 
             lastUpdate = new Date();
             updateLastUpdateUI();
 
-            return await response.json();
+            const { data, text } = await readJsonBody(response);
+            return data ?? text ?? null;
         } catch (error) {
             console.error(`[API] ${endpoint} failed:`, error);
             throw error;
@@ -248,14 +283,19 @@ const API = (function () {
             });
 
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API error: ${response.status} ${errorText}`);
+                const { text, data } = await readJsonBody(response);
+                const message = buildApiErrorMessage(response.status, data, text);
+                const error = new Error(message);
+                error.status = response.status;
+                error.payload = data || text || null;
+                throw error;
             }
 
             lastUpdate = new Date();
             updateLastUpdateUI();
 
-            return await response.json();
+            const { data, text } = await readJsonBody(response);
+            return data ?? text ?? null;
         } catch (error) {
             console.error(`[API] ${endpoint} failed:`, error);
             throw error;
@@ -412,6 +452,40 @@ const API = (function () {
             }
             return request('/v1/flights/plan', {
                 method: 'POST',
+                body: JSON.stringify(plan)
+            });
+        },
+        reserveOperationalIntent: async (payload) => {
+            const plan = { ...(payload || {}) };
+            if (plan.owner_id === undefined || plan.owner_id === null) {
+                plan.owner_id = await resolveOwnerId(plan.drone_id, plan.owner_id);
+            }
+            return request('/v1/operational_intents/reserve', {
+                method: 'POST',
+                body: JSON.stringify(plan)
+            });
+        },
+        confirmOperationalIntent: (flightId) => {
+            const safeId = encodeURIComponent(flightId);
+            return request(`/v1/operational_intents/${safeId}/confirm`, {
+                method: 'POST'
+            });
+        },
+        cancelOperationalIntent: (flightId) => {
+            const safeId = encodeURIComponent(flightId);
+            return request(`/v1/operational_intents/${safeId}/cancel`, {
+                method: 'POST'
+            });
+        },
+        updateOperationalIntent: async (flightId, payload) => {
+            const plan = { ...(payload || {}) };
+            const droneId = plan.drone_id;
+            if (plan.owner_id === undefined || plan.owner_id === null) {
+                plan.owner_id = await resolveOwnerId(droneId, plan.owner_id);
+            }
+            const safeId = encodeURIComponent(flightId);
+            return request(`/v1/operational_intents/${safeId}`, {
+                method: 'PUT',
                 body: JSON.stringify(plan)
             });
         },

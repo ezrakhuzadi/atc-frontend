@@ -20,6 +20,7 @@
     };
 
     const PLAN_STATUS_LABELS = {
+        reserved: 'Reserved',
         pending: 'Pending',
         approved: 'Approved',
         active: 'Active',
@@ -38,6 +39,20 @@
             .replace(/'/g, '&#39;');
     }
 
+    function formatDelayMs(delayMs) {
+        if (!Number.isFinite(delayMs)) return null;
+        if (delayMs === 0) return 'On time';
+        const sign = delayMs >= 0 ? '+' : '-';
+        const absSeconds = Math.round(Math.abs(delayMs) / 1000);
+        if (absSeconds < 60) return `${sign}${absSeconds}s`;
+        const totalMinutes = Math.floor(absSeconds / 60);
+        const seconds = absSeconds % 60;
+        if (totalMinutes < 60) return `${sign}${totalMinutes}m ${seconds}s`;
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return `${sign}${hours}h ${minutes}m`;
+    }
+
     function getPlanTimestamp(plan) {
         const raw = plan?.created_at || plan?.departure_time || plan?.arrival_time || '';
         const ts = Date.parse(raw);
@@ -48,6 +63,11 @@
         if (!existing) return candidate;
         if (!candidate) return existing;
         return getPlanTimestamp(candidate) >= getPlanTimestamp(existing) ? candidate : existing;
+    }
+
+    function getDeclarationId(mission) {
+        const id = mission?.id || mission?.pk || null;
+        return id !== null && id !== undefined ? String(id) : null;
     }
 
     function buildPlanIndex(plans) {
@@ -63,8 +83,9 @@
             }
             const declarationId = plan?.metadata?.blender_declaration_id;
             if (declarationId) {
-                const existing = byDeclarationId.get(declarationId);
-                byDeclarationId.set(declarationId, pickLatestPlan(existing, plan));
+                const key = String(declarationId);
+                const existing = byDeclarationId.get(key);
+                byDeclarationId.set(key, pickLatestPlan(existing, plan));
             }
             if (plan.drone_id) {
                 const existing = byDroneId.get(plan.drone_id);
@@ -82,7 +103,7 @@
             return planIndex.byPlanId.get(planId);
         }
 
-        const declarationId = mission.id || mission.pk || null;
+        const declarationId = getDeclarationId(mission);
         if (declarationId && planIndex.byDeclarationId.has(declarationId)) {
             return planIndex.byDeclarationId.get(declarationId);
         }
@@ -187,6 +208,16 @@
                 : '';
             const plan = getPlanForMission(mission, planIndex);
             const planSummary = getPlanSummary(plan);
+            const requestedAtc = plan?.metadata?.requested_departure_time || mission.start_datetime || '';
+            const requestedMs = Date.parse(requestedAtc || '');
+            const scheduledMs = Date.parse(plan?.departure_time || '');
+            const delayMs = Number.isFinite(requestedMs) && Number.isFinite(scheduledMs)
+                ? scheduledMs - requestedMs
+                : NaN;
+            const delayLabel = formatDelayMs(delayMs);
+            const delayLine = planSummary && delayLabel
+                ? `<div class="list-item-subtitle"><span class="status-badge warn">ATC Delay ${escapeHtml(delayLabel)}</span></div>`
+                : '';
             const planLine = planSummary
                 ? `<div class="list-item-subtitle"><span class="status-badge ${planSummary.className}">ATC Plan ${escapeHtml(planSummary.label)}</span></div>`
                 : mission.aircraft_id
@@ -217,6 +248,7 @@
                         ${conformanceLine}
                         ${conformanceDetail}
                         ${planLine}
+                        ${delayLine}
                         ${plannerComplianceLine}
                     </div>
                     <div class="list-item-actions">
@@ -245,6 +277,7 @@
                 return 'flying';
             case 'completed':
                 return 'pass';
+            case 'reserved':
             case 'approved':
                 return 'pending';
             case 'rejected':

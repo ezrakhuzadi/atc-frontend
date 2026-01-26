@@ -25,6 +25,7 @@
     };
 
     const PLAN_STATUS_LABELS = {
+        reserved: 'Reserved',
         pending: 'Pending',
         approved: 'Approved',
         active: 'Active',
@@ -45,6 +46,20 @@
         if (!existing) return candidate;
         if (!candidate) return existing;
         return getPlanTimestamp(candidate) >= getPlanTimestamp(existing) ? candidate : existing;
+    }
+
+    function formatDelayMs(delayMs) {
+        if (!Number.isFinite(delayMs)) return '--';
+        if (delayMs === 0) return 'On time';
+        const sign = delayMs >= 0 ? '+' : '-';
+        const absSeconds = Math.round(Math.abs(delayMs) / 1000);
+        if (absSeconds < 60) return `${sign}${absSeconds}s`;
+        const totalMinutes = Math.floor(absSeconds / 60);
+        const seconds = absSeconds % 60;
+        if (totalMinutes < 60) return `${sign}${totalMinutes}m ${seconds}s`;
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return `${sign}${hours}h ${minutes}m`;
     }
 
     function findLatestPlan(plans, predicate) {
@@ -174,9 +189,13 @@
             if (match) return match;
         }
 
-        const declarationId = mission.id || mission.pk || null;
+        const declarationId = getDeclarationId(mission, missionId);
         if (declarationId) {
-            const match = findLatestPlan(plans, (plan) => plan?.metadata?.blender_declaration_id === declarationId);
+            const match = findLatestPlan(plans, (plan) => {
+                const planDeclarationId = plan?.metadata?.blender_declaration_id;
+                if (planDeclarationId === null || planDeclarationId === undefined) return false;
+                return String(planDeclarationId) === declarationId;
+            });
             if (match) return match;
         }
 
@@ -209,37 +228,150 @@
         }
 
         try {
-            const declarationId = mission.id || mission.pk || null;
-            const compliance = mission?.flight_declaration_geo_json?.features?.[0]?.properties?.compliance;
-            const battery = compliance?.checks?.battery || {};
-            const obstacles = compliance?.checks?.obstacles || {};
-            const override = compliance?.override || {};
-            const cruiseSpeed = Number(battery.cruiseSpeedMps);
-            const capacityMin = Number(battery.capacityMin);
-            const reserveMin = Number(battery.reserveMin);
-            const clearanceM = Number(obstacles.clearanceM);
-
-            const metadata = {
-                blender_declaration_id: declarationId || undefined,
-                drone_speed_mps: Number.isFinite(cruiseSpeed) && cruiseSpeed > 0 ? cruiseSpeed : undefined,
-                battery_capacity_min: Number.isFinite(capacityMin) ? capacityMin : undefined,
-                battery_reserve_min: Number.isFinite(reserveMin) ? reserveMin : undefined,
-                clearance_m: Number.isFinite(clearanceM) ? clearanceM : undefined,
-                operation_type: Number(mission.type_of_operation || 1),
-                compliance_override_enabled: !!override.enabled,
-                compliance_override_notes: override.notes || undefined
-            };
-            await API.createFlightPlan({
+            const declarationId = getDeclarationId(mission, missionId);
+            const metadata = buildAtcMetadata(mission, declarationId);
+            const plan = await API.reserveOperationalIntent({
                 drone_id: mission.aircraft_id,
                 waypoints,
                 departure_time: mission.start_datetime || undefined,
                 metadata
             });
-            alert('ATC plan submitted.');
+            const requestedMs = Date.parse(mission.start_datetime || '');
+            const scheduledMs = Date.parse(plan?.departure_time || '');
+            const delayMs = Number.isFinite(requestedMs) && Number.isFinite(scheduledMs)
+                ? scheduledMs - requestedMs
+                : NaN;
+            alert(`ATC slot reserved: ${PLAN_STATUS_LABELS[String(plan.status || '').toLowerCase()] || plan.status} (delay ${formatDelayMs(delayMs)})`);
             await loadMission();
         } catch (error) {
             alert(`Failed to submit ATC plan: ${error.message}`);
         }
+    }
+
+    async function confirmAtcPlan(plan) {
+        if (!plan?.flight_id) return;
+        try {
+            await API.confirmOperationalIntent(plan.flight_id);
+            alert('ATC slot confirmed.');
+            await loadMission();
+        } catch (error) {
+            alert(`Failed to confirm ATC slot: ${error.message}`);
+        }
+    }
+
+    async function updateAtcPlan(plan, mission, waypoints) {
+        if (!plan?.flight_id) return;
+        if (!mission?.aircraft_id) return;
+        if (!Array.isArray(waypoints) || waypoints.length === 0) {
+            alert('No route available to submit.');
+            return;
+        }
+
+        const status = String(plan.status || '').toLowerCase();
+        if (status !== 'reserved') {
+            alert('Only reserved ATC slots can be updated.');
+            return;
+        }
+
+        try {
+            const declarationId = getDeclarationId(mission, missionId);
+            const metadata = buildAtcMetadata(mission, declarationId);
+            const updated = await API.updateOperationalIntent(plan.flight_id, {
+                drone_id: mission.aircraft_id,
+                waypoints,
+                departure_time: mission.start_datetime || undefined,
+                metadata
+            });
+            const requestedMs = Date.parse(mission.start_datetime || '');
+            const scheduledMs = Date.parse(updated?.departure_time || '');
+            const delayMs = Number.isFinite(requestedMs) && Number.isFinite(scheduledMs)
+                ? scheduledMs - requestedMs
+                : NaN;
+            alert(`ATC slot updated: ${PLAN_STATUS_LABELS[String(updated.status || '').toLowerCase()] || updated.status} (delay ${formatDelayMs(delayMs)})`);
+            await loadMission();
+        } catch (error) {
+            alert(`Failed to update ATC slot: ${error.message}`);
+        }
+    }
+
+    async function cancelAtcPlan(plan) {
+        if (!plan?.flight_id) return;
+        const status = String(plan.status || '').toLowerCase();
+        const label = PLAN_STATUS_LABELS[status] || plan.status || 'plan';
+        const confirmCancel = confirm(`Cancel ATC ${label}?`);
+        if (!confirmCancel) return;
+        try {
+            await API.cancelOperationalIntent(plan.flight_id);
+            alert('ATC slot cancelled.');
+            await loadMission();
+        } catch (error) {
+            alert(`Failed to cancel ATC slot: ${error.message}`);
+        }
+    }
+
+    function configureAtcUpdateButton(plan, mission, waypoints) {
+        const btn = document.getElementById('updateAtcSlot');
+        if (!btn) return;
+        const status = String(plan?.status || '').toLowerCase();
+        if (status === 'reserved' && plan?.flight_id) {
+            btn.style.display = '';
+            btn.disabled = false;
+            btn.textContent = 'Update ATC Slot';
+            btn.title = 'Re-run slotting for the latest mission details';
+            btn.onclick = () => updateAtcPlan(plan, mission, waypoints);
+            return;
+        }
+        btn.style.display = 'none';
+        btn.disabled = true;
+        btn.onclick = null;
+    }
+
+    function configureAbortButton(plan, mission) {
+        const abortBtn = document.getElementById('abortMission');
+        if (!abortBtn) return;
+
+        const hasDrone = !!mission?.aircraft_id;
+        if (!hasDrone) {
+            abortBtn.disabled = true;
+            abortBtn.onclick = null;
+            return;
+        }
+
+        const missionState = Number(mission?.state);
+        const inFlight = missionState === 2 || missionState === 3 || missionState === 4;
+        const ended = missionState === 5 || missionState === 6 || missionState === 7 || missionState === 8;
+        const planStatus = String(plan?.status || '').toLowerCase();
+        const canCancelPlan = plan && (planStatus === 'reserved' || planStatus === 'approved');
+
+        if (ended) {
+            abortBtn.disabled = true;
+            abortBtn.textContent = 'Abort Mission';
+            abortBtn.className = 'btn btn-warning';
+            abortBtn.onclick = null;
+            return;
+        }
+
+        if (!inFlight && canCancelPlan) {
+            abortBtn.disabled = false;
+            abortBtn.textContent = 'Cancel ATC Slot';
+            abortBtn.className = 'btn btn-danger';
+            abortBtn.onclick = () => cancelAtcPlan(plan);
+            return;
+        }
+
+        abortBtn.disabled = false;
+        abortBtn.textContent = 'Abort Mission';
+        abortBtn.className = 'btn btn-warning';
+        abortBtn.onclick = async () => {
+            const confirmAbort = confirm(`Abort mission and hold ${mission.aircraft_id}?`);
+            if (!confirmAbort) return;
+            try {
+                await API.holdDrone(mission.aircraft_id, 999);
+                alert(`Hold command sent to ${mission.aircraft_id}`);
+            } catch (error) {
+                alert(`Failed to abort mission: ${error.message}`);
+            }
+        };
     }
 
     function updateApproveButton(plan, mission, waypoints) {
@@ -256,6 +388,20 @@
         if (plan) {
             const status = String(plan.status || '').toLowerCase();
             const label = PLAN_STATUS_LABELS[status] || 'Unknown';
+            if (status === 'reserved') {
+                approveBtn.disabled = false;
+                approveBtn.textContent = 'Confirm ATC Slot';
+                approveBtn.title = 'Confirm this reserved ATC slot for execution';
+                approveBtn.onclick = () => confirmAtcPlan(plan);
+                return;
+            }
+            if (status === 'rejected' || status === 'cancelled') {
+                approveBtn.disabled = false;
+                approveBtn.textContent = 'Reserve with ATC';
+                approveBtn.title = `Previous ATC plan: ${label}`;
+                approveBtn.onclick = () => submitAtcPlan(mission, waypoints);
+                return;
+            }
             approveBtn.disabled = true;
             approveBtn.textContent = `ATC Plan: ${label}`;
             approveBtn.title = plan.status || '';
@@ -263,8 +409,8 @@
         }
 
         approveBtn.disabled = false;
-        approveBtn.textContent = 'Send to ATC';
-        approveBtn.title = 'Generate an ATC flight plan from this declaration';
+        approveBtn.textContent = 'Reserve with ATC';
+        approveBtn.title = 'Reserve an ATC slot for this mission';
         approveBtn.onclick = () => submitAtcPlan(mission, waypoints);
     }
 
@@ -448,6 +594,42 @@
         }));
     }
 
+    function getDeclarationId(mission, fallbackId = null) {
+        const id = mission?.id || mission?.pk || fallbackId;
+        return id !== null && id !== undefined ? String(id) : null;
+    }
+
+    function getComplianceFromMission(mission) {
+        const geo = utils.parseGeoJson(
+            mission?.flight_declaration_geojson
+            || mission?.flight_declaration_geo_json
+            || mission?.flight_declaration_raw_geojson
+        );
+        return geo?.features?.[0]?.properties?.compliance || null;
+    }
+
+    function buildAtcMetadata(mission, declarationId) {
+        const compliance = getComplianceFromMission(mission);
+        const battery = compliance?.checks?.battery || {};
+        const obstacles = compliance?.checks?.obstacles || {};
+        const override = compliance?.override || {};
+        const cruiseSpeed = Number(battery.cruiseSpeedMps);
+        const capacityMin = Number(battery.capacityMin);
+        const reserveMin = Number(battery.reserveMin);
+        const clearanceM = Number(obstacles.clearanceM);
+
+        return {
+            blender_declaration_id: declarationId || undefined,
+            drone_speed_mps: Number.isFinite(cruiseSpeed) && cruiseSpeed > 0 ? cruiseSpeed : undefined,
+            battery_capacity_min: Number.isFinite(capacityMin) ? capacityMin : undefined,
+            battery_reserve_min: Number.isFinite(reserveMin) ? reserveMin : undefined,
+            clearance_m: Number.isFinite(clearanceM) ? clearanceM : undefined,
+            operation_type: Number(mission?.type_of_operation || 1),
+            compliance_override_enabled: !!override.enabled,
+            compliance_override_notes: override.notes || undefined
+        };
+    }
+
     async function loadMission() {
         const owner = utils.getOwnerContext();
         const ownerId = owner?.id || null;
@@ -506,7 +688,8 @@
         const listWaypoints = sampleWaypoints(listSource, MAX_LIST_POINTS);
         const planMetadata = plan?.metadata || null;
 
-        const missionName = mission.originating_party || (mission.id ? `Mission ${mission.id.slice(0, 8)}` : 'Mission');
+        const missionIdText = getDeclarationId(mission, missionId) || '';
+        const missionName = mission.originating_party || (missionIdText ? `Mission ${missionIdText.slice(0, 8)}` : 'Mission');
         setText('missionName', missionName);
 
         const statusLabel = STATE_LABELS[mission.state] || 'Unknown';
@@ -526,6 +709,19 @@
         setText('missionType', typeLabel);
         setText('createdAt', utils.formatDateTime(mission.created_at || mission.updated_at || mission.start_datetime));
         setText('startedAt', utils.formatDateTime(mission.start_datetime));
+        const requestedAtc = plan?.metadata?.requested_departure_time || mission.start_datetime || '';
+        setText('atcRequested', utils.formatDateTime(requestedAtc));
+        setText('atcScheduled', plan?.departure_time ? utils.formatDateTime(plan.departure_time) : '--');
+        const requestedMs = Date.parse(requestedAtc || '');
+        const scheduledMs = Date.parse(plan?.departure_time || '');
+        const delayMs = Number.isFinite(requestedMs) && Number.isFinite(scheduledMs)
+            ? scheduledMs - requestedMs
+            : NaN;
+        setText('atcDelay', formatDelayMs(delayMs));
+        const expiresAt = plan?.status === 'reserved'
+            ? plan?.metadata?.reservation_expires_at
+            : null;
+        setText('atcExpires', expiresAt ? utils.formatDateTime(expiresAt) : '--');
 
         const progress = computeProgress(mission.start_datetime, mission.end_datetime);
         setText('progress', progress !== null ? `${progress}%` : '--');
@@ -596,6 +792,8 @@
         await initMap();
         renderRoute(mapWaypoints);
         updateApproveButton(plan, mission, mapWaypoints);
+        configureAtcUpdateButton(plan, mission, mapWaypoints);
+        configureAbortButton(plan, mission);
 
         const conformanceEntry = conformanceMap.get(mission.aircraft_id);
         const conformanceStatus = conformanceEntry?.status || 'unknown';
@@ -612,22 +810,6 @@
         setText('conformanceCode', conformanceEntry?.record?.conformance_state_code || '--');
         setText('conformanceDescription', conformanceEntry?.record?.description || '--');
         setText('conformanceUpdated', utils.formatDateTime(conformanceEntry?.last_checked));
-
-        const abortBtn = document.getElementById('abortMission');
-        if (abortBtn) {
-            abortBtn.disabled = !mission.aircraft_id;
-            abortBtn.addEventListener('click', async () => {
-                if (!mission.aircraft_id) return;
-                const confirmAbort = confirm(`Abort mission and hold ${mission.aircraft_id}?`);
-                if (!confirmAbort) return;
-                try {
-                    await API.holdDrone(mission.aircraft_id, 999);
-                    alert(`Hold command sent to ${mission.aircraft_id}`);
-                } catch (error) {
-                    alert(`Failed to abort mission: ${error.message}`);
-                }
-            });
-        }
 
         const approveBtn = document.getElementById('approveMission');
         if (approveBtn && approveBtn.disabled && !approveBtn.title) {

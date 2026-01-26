@@ -533,11 +533,15 @@
     }
 
     function resolveWsUrl() {
-        let base = CONFIG.ATC_WS_BASE;
-        if (!base) {
-            if (/^https?:\/\//i.test(CONFIG.ATC_SERVER_URL)) {
-                base = CONFIG.ATC_SERVER_URL;
-            } else {
+        let base = CONFIG.ATC_WS_BASE || CONFIG.ATC_SERVER_URL || '';
+        if (!base) return '';
+
+        // Allow same-origin relative bases like "/api/atc" (Docker-safe).
+        if (base.startsWith('/')) {
+            try {
+                base = new URL(base, window.location.origin).toString();
+            } catch (error) {
+                console.warn('[Map] Invalid WS base path:', error);
                 return '';
             }
         }

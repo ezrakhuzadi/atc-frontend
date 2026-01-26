@@ -1261,6 +1261,12 @@
             lon: wp.lon,
             alt: Number.isFinite(wp.alt) ? wp.alt : cruiseAltitude
         }));
+        const atcRequestWaypoints = activeRoute.map((wp) => ({
+            lat: wp.lat,
+            lon: wp.lon,
+            altitude_m: Number.isFinite(wp.alt) ? wp.alt : cruiseAltitude,
+            speed_mps: cruiseSpeed > 0 ? cruiseSpeed : undefined
+        }));
 
         const trajectorySource = Array.isArray(state.optimizedRoute) && state.optimizedRoute.length >= 2
             ? state.optimizedRoute
@@ -1270,6 +1276,21 @@
             lon: wp.lon,
             alt: Number.isFinite(wp.alt) ? wp.alt : cruiseAltitude
         }));
+        const speedMps = cruiseSpeed > 0 ? cruiseSpeed : 0;
+        let cumulativeTimeS = 0;
+        const trajectoryLogRequest = trajectorySource.map((wp, index) => {
+            const altitude = Number.isFinite(wp.alt) ? wp.alt : cruiseAltitude;
+            if (index > 0 && speedMps > 0) {
+                const prev = trajectorySource[index - 1];
+                cumulativeTimeS += utils.haversineMeters(prev.lat, prev.lon, wp.lat, wp.lon) / speedMps;
+            }
+            return {
+                lat: wp.lat,
+                lon: wp.lon,
+                altitude_m: altitude,
+                time_offset_s: speedMps > 0 ? Number(cumulativeTimeS.toFixed(2)) : undefined
+            };
+        });
 
         const atcPlanEmbed = {
             id: flightId,
@@ -1338,24 +1359,27 @@
             compliance_override_notes: overrideNotes || undefined
         };
         try {
-            await API.createPlannerFlightPlan({
-                flight_id: flightId,
-                waypoints: atcWaypoints,
-                trajectory_log: trajectoryLog,
+            await API.reserveOperationalIntent({
+                drone_id: droneId,
+                waypoints: atcRequestWaypoints,
+                trajectory_log: trajectoryLogRequest,
+                departure_time: startTime,
                 owner_id: window.APP_USER?.id || undefined,
                 metadata
             });
         } catch (error) {
-            if (declarationId) {
+            const shouldRollback = declarationId && (!error?.status || error.status >= 500);
+            if (shouldRollback) {
                 API.deleteFlightDeclaration(declarationId).catch((cleanupError) => {
                     console.warn('[Mission] Failed to rollback Blender declaration:', cleanupError);
                 });
+                showMessage('error', `ATC reservation failed; attempted Blender rollback. ${error.message}`);
+                return;
             }
-            showMessage('error', `ATC plan failed; attempted Blender rollback. ${error.message}`);
-            return;
+            showMessage('error', `Flight declaration submitted, but ATC reservation failed: ${error.message}`);
         }
 
-        showMessage('success', 'Flight declaration submitted successfully.');
+        showMessage('success', 'Flight declaration submitted successfully. ATC slot reserved.');
         setTimeout(() => {
             window.location.href = '/control/missions';
         }, 1200);
