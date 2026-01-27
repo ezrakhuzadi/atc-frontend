@@ -481,6 +481,9 @@
                 realtimeRetryTimer = null;
             }
 
+            // When WS is up, rely on push updates for drones and keep polling as a slow resync.
+            setPollingInterval('drones', fetchDrones, 30000);
+
             // Reset attempts only after connection has been stable for 5 seconds
             wsConnectionStableTimer = setTimeout(() => {
                 if (realtimeSocket && realtimeSocket.readyState === WebSocket.OPEN) {
@@ -518,6 +521,8 @@
 
         realtimeSocket.onclose = () => {
             console.warn('[Map] Realtime stream disconnected. Retrying with backoff...');
+            // Fall back to faster polling if WS is down.
+            setPollingInterval('drones', fetchDrones, CONFIG.REFRESH_INTERVALS.drones);
             // Cancel stability timer if connection closes before 5 seconds
             if (wsConnectionStableTimer) {
                 clearTimeout(wsConnectionStableTimer);
