@@ -2,7 +2,7 @@
     title: 'Flight Planner',
     activePage: 'planner',
     head: `
-    <style>
+    <style nonce="${cspNonce}">
         .planner-frame {
             width: 100%;
             height: 100%;
@@ -24,7 +24,7 @@
     </div>
     `,
     scripts: `
-    <script>
+    <script nonce="${cspNonce}">
         (() => {
             const frame = document.getElementById('plannerFrame');
             if (!frame) return;

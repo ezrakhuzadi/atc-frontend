@@ -35,7 +35,7 @@
         <%- include('../partials/status-bar') %>
     </div>
     
-    <script>
+    <script nonce="<%= cspNonce %>">
         window.APP_USER = <%- JSON.stringify(user || null) %>;
         window.__CSRF_TOKEN__ = <%- JSON.stringify(csrfToken || '') %>;
         window.__ATC_API_BASE__ = "<%= typeof atcApiBase !== 'undefined' ? atcApiBase : '' %>";
@@ -50,7 +50,7 @@
             osmBuildingsAssetId: <%- JSON.stringify(osmBuildingsAssetId || null) %>
         };
     </script>
-    <script>
+    <script nonce="<%= cspNonce %>">
         window.escapeHtml = window.escapeHtml || function (value) {
             return String(value ?? '')
                 .replace(/&/g, '&amp;')

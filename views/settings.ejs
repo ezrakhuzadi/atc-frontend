@@ -256,7 +256,7 @@
     </div>
 
     <script src="/assets/js/api-client.js"></script>
-    <script>
+    <script nonce="<%= cspNonce %>">
         document.addEventListener('DOMContentLoaded', function () {
             const params = new URLSearchParams(window.location.search);
             const container = document.getElementById('messageContainer');

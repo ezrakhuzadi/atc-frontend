@@ -29,6 +29,7 @@
   const BLENDER_AUTH_TOKEN = process.env.BLENDER_AUTH_TOKEN || "";
   const IS_PRODUCTION = process.env.NODE_ENV === "production";
   const DEMO_MODE = process.env.DEMO_MODE === "1";
+  const LOG_REQUESTS = !IS_PRODUCTION || process.env.ATC_FRONTEND_LOG_REQUESTS === "1";
   const PASSWORD_ALGO = "bcrypt";
   const PASSWORD_ROUNDS = Number(process.env.PASSWORD_ROUNDS || 10);
   const ALLOW_DEFAULT_USERS = process.env.ATC_ALLOW_DEFAULT_USERS === "1";
@@ -321,16 +322,39 @@
   app.locals.routePlannerConfig = ROUTE_PLANNER_CONFIG || {};
 
   app.use((_req, res, next) => {
+    const nonce = crypto.randomBytes(16).toString("base64");
+    res.locals.cspNonce = nonce;
+
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
+    res.setHeader(
+      "Content-Security-Policy",
+      [
+        "default-src 'self'",
+        `script-src 'self' 'nonce-${nonce}'`,
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com data:",
+        "img-src 'self' data: blob: https:",
+        "connect-src 'self' https: ws: wss:",
+        "worker-src 'self' blob:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'"
+      ].join("; ")
+    );
+    if (IS_PRODUCTION) {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
     next();
   });
 
   app.use((req, res, next) => {
-    const requestId = req.requestId || "-";
-    console.log(`[REQUEST] ${req.method} ${req.url} rid=${requestId}`);
+    if (LOG_REQUESTS) {
+      const requestId = req.requestId || "-";
+      console.log(`[REQUEST] ${req.method} ${req.url} rid=${requestId}`);
+    }
     next();
   });
 
