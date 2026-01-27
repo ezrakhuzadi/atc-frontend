@@ -10,9 +10,13 @@
     <meta name="description"
         content="Flight planning and route validation for drone operations. Calculates 3D corridors with FAA Part 107 compliance.">
 
-    <!-- CesiumJS -->
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <!-- CesiumJS (local build for offline demos) -->
+    <script>
+        // Required for Cesium to find worker scripts/assets when not using a bundler.
+        window.CESIUM_BASE_URL = '/assets/Build/Cesium/';
+    </script>
+    <script src="/assets/Build/Cesium/Cesium.js"></script>
+    <link href="/assets/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
