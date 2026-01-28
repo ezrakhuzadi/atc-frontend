@@ -226,7 +226,7 @@
                     <div class="atc-camera-controls__row atc-camera-controls__row--mode" role="group" aria-label="Camera mode">
                         <button type="button" class="atc-camera-controls__chip active" data-action="mode" data-mode="free" title="Free camera">Free</button>
                         <button type="button" class="atc-camera-controls__chip" data-action="mode" data-mode="orbit" title="Orbit around a target point">Orbit</button>
-                        <button type="button" class="atc-camera-controls__chip" data-action="recenter" title="Recenter orbit target to screen center">Target</button>
+                        <button type="button" class="atc-camera-controls__chip" data-action="recenter" title="Recenter orbit target to screen center">Recenter</button>
                     </div>
 
                     <div class="atc-camera-controls__row atc-camera-controls__row--presets" role="group" aria-label="Orbit to cardinal view">

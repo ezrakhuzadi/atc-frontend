@@ -114,6 +114,17 @@
 
             <!-- Camera Controls Overlay -->
             <div class="map-controls-overlay">
+                <!-- Camera Mode -->
+                <div class="control-group">
+                    <span class="control-label">Camera</span>
+                    <button class="control-btn active" id="cam-free-btn"
+                        onclick="MapControl.setCameraMode('free')">Free</button>
+                    <button class="control-btn" id="cam-orbit-btn"
+                        onclick="MapControl.setCameraMode('orbit')">Orbit</button>
+                    <button class="control-btn" id="cam-cockpit-btn"
+                        onclick="MapControl.setCameraMode('cockpit')">Cockpit</button>
+                </div>
+
                 <!-- Time of Day -->
                 <div class="control-group">
                     <span class="control-label">Time</span>
