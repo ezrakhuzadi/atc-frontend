@@ -1541,6 +1541,8 @@
         let suppressWaypointSync = false;
         let draggingRow = null;
         let dragGhost = null;
+        let resyncInFlight = false;
+        let resyncQueued = false;
 
         /**
          * AutocompleteService - Handles Cesium Ion geocoding with debounce
@@ -1916,16 +1918,29 @@
          * Re-sync FlightPlanner waypoints from resolved inputs
          */
         async function resyncWaypointsFromInputs() {
+            if (resyncInFlight) {
+                resyncQueued = true;
+                return;
+            }
+            resyncInFlight = true;
             suppressWaypointSync = true;
-            FlightPlanner.clearWaypoints();
-            const inputs = Array.from(document.querySelectorAll('.route-input'));
-            for (const input of inputs) {
-                const data = routeInputData.get(input);
-                if (data && data.lat && data.lon) {
-                    await FlightPlanner.addWaypointByCoords(data.lat, data.lon);
+            try {
+                FlightPlanner.clearWaypoints();
+                const inputs = Array.from(document.querySelectorAll('.route-input'));
+                for (const input of inputs) {
+                    const data = routeInputData.get(input);
+                    if (data && data.lat && data.lon) {
+                        await FlightPlanner.addWaypointByCoords(data.lat, data.lon);
+                    }
+                }
+            } finally {
+                suppressWaypointSync = false;
+                resyncInFlight = false;
+                if (resyncQueued) {
+                    resyncQueued = false;
+                    void resyncWaypointsFromInputs();
                 }
             }
-            suppressWaypointSync = false;
         }
 
         function updateMarkerLabels() {
@@ -2125,17 +2140,17 @@
 
         // Bi-directional: map click fills next empty input OR creates new stop
         window.onWaypointAdded = function (waypoints) {
+            if (suppressWaypointSync || resyncInFlight) return;
             updateWaypointList(waypoints);
             resetRouteState();
 
-            if (suppressWaypointSync) return;
             syncRouteInputsToWaypoints(waypoints);
             const lastLabel = indexToAlphaLabel(waypoints.length);
             showToast(`Waypoint ${lastLabel} added`, 'success');
         };
 
         window.onWaypointsCleared = function () {
-            if (suppressWaypointSync) return;
+            if (suppressWaypointSync || resyncInFlight) return;
             routeInputData.clear();
             document.querySelectorAll('.route-input-row').forEach(row => {
                 const input = row.querySelector('.route-input');
