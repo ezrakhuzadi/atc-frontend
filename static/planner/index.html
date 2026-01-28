@@ -877,7 +877,7 @@
                         <!-- Start Location -->
                         <div class="route-input-row" data-index="0">
                             <span class="route-marker start">A</span>
-                            <button type="button" class="route-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
+                            <button type="button" class="route-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
                             <div class="route-input-wrapper">
                                 <input type="text" class="route-input" placeholder="Start: Address or coordinates"
                                     data-type="start" autocomplete="off">
@@ -889,7 +889,7 @@
                         <!-- Destination -->
                         <div class="route-input-row" data-index="1">
                             <span class="route-marker end"><span>B</span></span>
-                            <button type="button" class="route-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
+                            <button type="button" class="route-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
                             <div class="route-input-wrapper">
                                 <input type="text" class="route-input" placeholder="Destination: Address or coordinates"
                                     data-type="end" autocomplete="off">
@@ -1098,6 +1098,11 @@
             container.appendChild(toast);
 
             setTimeout(() => toast.remove(), 4000);
+        }
+
+        function resetRouteState() {
+            currentRouteData = null;
+            updateValidationUI(null);
         }
 
 
@@ -1535,6 +1540,7 @@
         let autocompleteService = null;
         let suppressWaypointSync = false;
         let draggingRow = null;
+        let dragGhost = null;
 
         /**
          * AutocompleteService - Handles Cesium Ion geocoding with debounce
@@ -1670,6 +1676,7 @@
             routeInputData.set(input, { lat, lon, text: name, fullName: result.displayName });
 
             await resyncWaypointsFromInputs();
+            resetRouteState();
             FlightPlanner.flyTo(lat, lon, 1000);
             showToast(name, 'success');
             updateClearButtonState();
@@ -1682,13 +1689,20 @@
             input.addEventListener('input', (e) => {
                 const query = e.target.value.trim();
                 const existingData = routeInputData.get(input);
+                const row = input.closest('.route-input-row');
+                const isStopRow = input.dataset.type === 'stop';
 
                 if (!query) {
                     input.classList.remove('resolved', 'error');
                     if (existingData) {
                         routeInputData.delete(input);
-                        void resyncWaypointsFromInputs();
                     }
+                    if (isStopRow && row) {
+                        row.remove();
+                        updateMarkerLabels();
+                    }
+                    resetRouteState();
+                    void resyncWaypointsFromInputs();
                     updateClearButtonState();
                     hideAutocomplete(input);
                     return;
@@ -1697,6 +1711,7 @@
                 if (existingData && existingData.text !== query) {
                     input.classList.remove('resolved', 'error');
                     routeInputData.delete(input);
+                    resetRouteState();
                     void resyncWaypointsFromInputs();
                 }
 
@@ -1809,6 +1824,7 @@
                     input.classList.add('resolved');
                     routeInputData.set(input, { ...result, text });
                     await resyncWaypointsFromInputs();
+                    resetRouteState();
                     if (!skipFlyTo) {
                         FlightPlanner.flyTo(result.lat, result.lon, 1000);
                     }
@@ -1850,7 +1866,7 @@
             stopRow.className = 'route-input-row';
             stopRow.innerHTML = `
                 <span class="route-marker stop">${stopCounter}</span>
-                <button type="button" class="route-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
+                <button type="button" class="route-drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</button>
                 <div class="route-input-wrapper">
                     <input type="text" class="route-input" placeholder="Stop: Address or coordinates" data-type="stop" autocomplete="off">
                     <div class="autocomplete-dropdown"></div>
@@ -1870,28 +1886,30 @@
             return stopRow;
         }
 
-        function removeStopInput(btn) {
+        async function removeStopInput(btn) {
             const row = btn.closest('.route-input-row');
             routeInputData.delete(row.querySelector('.route-input'));
             row.remove();
             updateMarkerLabels();
             updateClearButtonState();
+            resetRouteState();
             FlightPlanner.clearWaypoints(); // Re-sync with map
-            resyncWaypointsFromInputs();
+            await resyncWaypointsFromInputs();
         }
 
         /**
          * Clear a single input (for Start/End inputs - not removed, just cleared)
          */
-        function clearSingleInput(btn) {
+        async function clearSingleInput(btn) {
             const row = btn.closest('.route-input-row');
             const input = row.querySelector('.route-input');
             input.value = '';
             input.classList.remove('resolved', 'error');
             routeInputData.delete(input);
             updateClearButtonState();
+            resetRouteState();
             FlightPlanner.clearWaypoints();
-            resyncWaypointsFromInputs();
+            await resyncWaypointsFromInputs();
         }
 
         /**
@@ -1934,19 +1952,27 @@
 
         function setupRouteRowDrag(row) {
             if (!row || row.dataset.dragInit === 'true') return;
+            const handle = row.querySelector('.route-drag-handle');
+            if (!handle) return;
             row.dataset.dragInit = 'true';
-            row.setAttribute('draggable', 'true');
+            handle.setAttribute('draggable', 'true');
 
-            row.addEventListener('dragstart', (event) => {
-                const handle = event.target?.closest?.('.route-drag-handle');
-                if (!handle) {
-                    event.preventDefault();
-                    return;
-                }
+            handle.addEventListener('dragstart', (event) => {
                 draggingRow = row;
                 row.classList.add('dragging');
                 event.dataTransfer.effectAllowed = 'move';
                 event.dataTransfer.setData('text/plain', 'route');
+                if (!dragGhost) {
+                    dragGhost = row.cloneNode(true);
+                    dragGhost.style.position = 'absolute';
+                    dragGhost.style.top = '-9999px';
+                    dragGhost.style.left = '-9999px';
+                    dragGhost.style.width = `${row.offsetWidth}px`;
+                    document.body.appendChild(dragGhost);
+                }
+                if (dragGhost) {
+                    event.dataTransfer.setDragImage(dragGhost, 20, 20);
+                }
             });
 
             row.addEventListener('dragover', (event) => {
@@ -1974,12 +2000,16 @@
                 finalizeRouteReorder();
             });
 
-            row.addEventListener('dragend', () => {
+            handle.addEventListener('dragend', () => {
                 row.classList.remove('dragging');
                 document.querySelectorAll('.route-input-row.drag-over').forEach((el) => {
                     el.classList.remove('drag-over');
                 });
                 draggingRow = null;
+                if (dragGhost) {
+                    dragGhost.remove();
+                    dragGhost = null;
+                }
             });
         }
 
@@ -2006,6 +2036,7 @@
         function finalizeRouteReorder() {
             updateMarkerLabels();
             updateClearButtonState();
+            resetRouteState();
             void resyncWaypointsFromInputs();
         }
 
@@ -2095,13 +2126,30 @@
         // Bi-directional: map click fills next empty input OR creates new stop
         window.onWaypointAdded = function (waypoints) {
             updateWaypointList(waypoints);
-            currentRouteData = null;
-            updateValidationUI(null);
+            resetRouteState();
 
             if (suppressWaypointSync) return;
             syncRouteInputsToWaypoints(waypoints);
             const lastLabel = indexToAlphaLabel(waypoints.length);
             showToast(`Waypoint ${lastLabel} added`, 'success');
+        };
+
+        window.onWaypointsCleared = function () {
+            if (suppressWaypointSync) return;
+            routeInputData.clear();
+            document.querySelectorAll('.route-input-row').forEach(row => {
+                const input = row.querySelector('.route-input');
+                if (input && input.dataset.type === 'stop') {
+                    row.remove();
+                } else if (input) {
+                    input.value = '';
+                    input.classList.remove('resolved', 'error');
+                }
+            });
+            stopCounter = 0;
+            updateMarkerLabels();
+            updateClearButtonState();
+            resetRouteState();
         };
 
         document.getElementById('clearBtn').addEventListener('click', () => {
@@ -2137,8 +2185,7 @@
             updateClearButtonState();
 
             // Reset validation UI
-            currentRouteData = null;
-            updateValidationUI(null);
+            resetRouteState();
 
             showToast('All cleared', 'success');
         });
