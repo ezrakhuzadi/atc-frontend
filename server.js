@@ -853,12 +853,20 @@
     return String(value || "").trim().toLowerCase();
   }
 
+  function atcAdminHeaders(requestId = "") {
+    const headers = { "X-Request-ID": requestId };
+    if (ATC_ADMIN_TOKEN) {
+      headers.Authorization = `Bearer ${ATC_ADMIN_TOKEN}`;
+    }
+    return headers;
+  }
+
   async function getOwnedDroneIds(userId, requestId = "") {
     if (!userId) return new Set();
     try {
       const response = await atcAxios.get("/v1/drones", {
         params: { owner_id: userId },
-        headers: { "X-Request-ID": requestId },
+        headers: atcAdminHeaders(requestId),
         timeout: 8000
       });
       if (!response || response.status >= 400) {
@@ -1033,6 +1041,16 @@
   }
 
   function requiresAdminTokenForAtc(method, requestPath) {
+    if (method === "GET") {
+      if (requestPath === "/v1/drones" || requestPath.startsWith("/v1/drones/")) {
+        return true;
+      }
+      if (requestPath === "/v1/traffic") return true;
+      if (requestPath === "/v1/conflicts") return true;
+      if (requestPath === "/v1/conformance") return true;
+      if (requestPath === "/v1/daa") return true;
+      if (requestPath === "/v1/flights") return true;
+    }
     if (requestPath.startsWith("/v1/admin")) {
       return true;
     }
@@ -1074,7 +1092,7 @@
 
     try {
       const response = await atcAxios.get("/v1/drones", {
-        headers: { "X-Request-ID": req.requestId || "" },
+        headers: atcAdminHeaders(req.requestId || ""),
         timeout: 8000
       });
       if (!response || response.status >= 400) {
@@ -1109,7 +1127,7 @@
       for (let page = 0; page < 10; page += 1) {
         const response = await atcAxios.get("/v1/flights", {
           params: { owner_id: ownerId, limit, offset },
-          headers: { "X-Request-ID": req.requestId || "" },
+          headers: atcAdminHeaders(req.requestId || ""),
           timeout: 8000
         });
         if (!response || response.status >= 400) {
@@ -1549,7 +1567,9 @@
       forwardHeader("Sec-WebSocket-Protocol", secProtocol);
       forwardHeader("Origin", origin);
       forwardHeader("X-Request-ID", requestId);
-      if (ATC_WS_TOKEN) {
+      if (ATC_ADMIN_TOKEN) {
+        forwardHeader("Authorization", `Bearer ${ATC_ADMIN_TOKEN}`);
+      } else if (ATC_WS_TOKEN) {
         forwardHeader("Authorization", `Bearer ${ATC_WS_TOKEN}`);
       }
 
