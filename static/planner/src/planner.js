@@ -768,10 +768,47 @@
             viewer.entities.remove(safetyVolumeEntity);
         }
 
-        if (optimizedWaypoints.length < 2) return;
+        if (!Array.isArray(optimizedWaypoints) || optimizedWaypoints.length < 2) return;
 
-        const firstWp = optimizedWaypoints[0];
-        const lastWp = optimizedWaypoints[optimizedWaypoints.length - 1];
+        const isFiniteWaypoint = (wp) =>
+            wp
+            && Number.isFinite(wp.lat)
+            && Number.isFinite(wp.lon)
+            && Number.isFinite(wp.alt);
+
+        const dedupeCartesianPositions = (positions, minDistanceM = 0.25) => {
+            const out = [];
+            const minD = Number.isFinite(minDistanceM) ? Math.max(0, minDistanceM) : 0;
+            for (const pos of positions) {
+                if (!pos) continue;
+                if (out.length === 0) {
+                    out.push(pos);
+                    continue;
+                }
+                const last = out[out.length - 1];
+                const d = Cesium.Cartesian3.distance(last, pos);
+                if (!Number.isFinite(d) || d <= minD) {
+                    continue;
+                }
+                out.push(pos);
+            }
+            return out;
+        };
+
+        // The server route response may include takeoff/landing/vertical phases. For visualization,
+        // build the corridor around CRUISE* points only and defensively drop duplicates to avoid
+        // Cesium PolylineVolume geometry failures on zero-length segments.
+        const validWaypoints = optimizedWaypoints.filter(isFiniteWaypoint);
+        if (validWaypoints.length < 2) return;
+
+        const cruiseCandidates = validWaypoints.filter((wp) => {
+            const phase = (wp.phase || '').toString();
+            return !phase || phase.startsWith('CRUISE');
+        });
+        const cruiseWaypoints = cruiseCandidates.length >= 2 ? cruiseCandidates : validWaypoints;
+
+        const firstWp = cruiseWaypoints[0];
+        const lastWp = cruiseWaypoints[cruiseWaypoints.length - 1];
 
         // Get terrain heights - sample if not available
         let takeoffGround = firstWp.terrainHeight;
@@ -805,17 +842,20 @@
         fullFlightPath.push(Cesium.Cartesian3.fromDegrees(firstWp.lon, firstWp.lat, takeoffGround));
 
         // All cruise waypoints
-        optimizedWaypoints.forEach(wp => {
+        cruiseWaypoints.forEach(wp => {
             fullFlightPath.push(Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.alt));
         });
 
         // Landing point (ground level at end)
         fullFlightPath.push(Cesium.Cartesian3.fromDegrees(lastWp.lon, lastWp.lat, landingGround));
 
+        const fullFlightPathPositions = dedupeCartesianPositions(fullFlightPath, 0.25);
+        if (fullFlightPathPositions.length < 2) return;
+
         // Green glow polyline for full flight path (takeoff -> cruise -> landing)
         routeEntity = viewer.entities.add({
             polyline: {
-                positions: fullFlightPath,
+                positions: fullFlightPathPositions,
                 width: 6,
                 material: new Cesium.PolylineGlowMaterialProperty({
                     glowPower: 0.3,
@@ -826,14 +866,19 @@
         });
 
         // 3D Safety Corridor - only around cruise portion (not takeoff/landing)
-        const cruisePositions = optimizedWaypoints.map(wp =>
+        const cruisePositions = cruiseWaypoints.map(wp =>
             Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, wp.alt)
         );
+        const cruisePositionsClean = dedupeCartesianPositions(cruisePositions, 0.25);
+        if (cruisePositionsClean.length < 2) {
+            console.warn('[Planner] Skipping safety corridor: not enough distinct cruise points');
+            return;
+        }
 
         const CORRIDOR_DISPLAY_RADIUS = 8;
         safetyVolumeEntity = viewer.entities.add({
             polylineVolume: {
-                positions: cruisePositions,
+                positions: cruisePositionsClean,
                 shape: computeCircle(CORRIDOR_DISPLAY_RADIUS),
                 cornerType: Cesium.CornerType.ROUNDED,
                 material: Cesium.Color.CYAN.withAlpha(0.15),
